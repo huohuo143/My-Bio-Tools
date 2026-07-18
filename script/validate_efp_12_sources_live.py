@@ -32,7 +32,7 @@ CONFIG_ROOT = "https://bar.utoronto.ca/transcriptomics/efp_rice/data"
 
 def main() -> int:
     session = requests.Session()
-    session.headers.update({"User-Agent": "MyBioTools/1.7.2 live source audit"})
+    session.headers.update({"User-Agent": "MyBioTools/1.9.1 live source audit"})
     landing = session.get(EFP_URL, timeout=25)
     landing.raise_for_status()
     official_sources = [
@@ -112,7 +112,7 @@ def main() -> int:
             "A zero BAR SD field does not prove absence of biological variation."
         ),
     }
-    output_dir = ROOT / "analysis_results" / "v1.7.2_efp_source_validation"
+    output_dir = ROOT / "analysis_results" / "v1.9.1_efp_source_validation"
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "efp_12_source_live_validation_20260718.json"
     output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

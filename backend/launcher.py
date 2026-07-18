@@ -76,6 +76,20 @@ def initialize_plotting_runtime() -> None:
         plt.close(figure)
 
 
+def initialize_interpretation_runtime() -> None:
+    """Verify that the frozen build contains the safe Codex interpretation modules."""
+    import codex_chatgpt
+    import report_interpretation
+
+    if codex_chatgpt.PROVIDER_CODEX_CHATGPT != "codex_chatgpt":
+        raise RuntimeError("Unexpected Codex provider identifier")
+    if report_interpretation.PROVIDER_CODEX_CHATGPT != codex_chatgpt.PROVIDER_CODEX_CHATGPT:
+        raise RuntimeError("Codex provider wiring is inconsistent")
+    required = set(codex_chatgpt.CODEX_RESPONSE_SCHEMA.get("required", []))
+    if "executive_summary" not in required or "integrated_hypotheses" not in required:
+        raise RuntimeError("Codex response schema is incomplete")
+
+
 def watch_parent(parent_pid: int) -> None:
     """Exit promptly if the POSIX native container is no longer running."""
     if os.name != "posix":
@@ -116,13 +130,14 @@ def main() -> int:
 
     try:
         initialize_plotting_runtime()
+        initialize_interpretation_runtime()
     except Exception as exc:
         raise RuntimeError(
-            f"Bundled plotting runtime initialization failed: {type(exc).__name__}: {exc}"
+            f"Bundled runtime initialization failed: {type(exc).__name__}: {exc}"
         ) from exc
 
     if args.runtime_smoke_test:
-        print("Bundled plotting runtime smoke test passed.")
+        print("Bundled plotting and interpretation runtime smoke test passed.")
         return 0
 
     assert app_dir is not None

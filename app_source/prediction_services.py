@@ -76,7 +76,7 @@ def create_session() -> requests.Session:
     session.mount("https://", HTTPAdapter(max_retries=retry, pool_connections=2, pool_maxsize=2))
     session.headers.update(
         {
-            "User-Agent": "MyBioTools/1.8.0 (+academic rice protein analysis)",
+            "User-Agent": "MyBioTools/1.9.1 (+academic rice protein analysis)",
             "Accept": "text/html, text/plain, application/xhtml+xml",
         }
     )

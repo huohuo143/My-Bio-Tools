@@ -576,6 +576,7 @@ class CoreFunctionTests(unittest.TestCase):
             workbook.sheetnames,
             [
                 "Overview",
+                "Interpretation",
                 "ID_Mapping",
                 "RiceData",
                 "RiceData_References",
@@ -616,6 +617,9 @@ class CoreFunctionTests(unittest.TestCase):
             self.assertEqual(len(fasta_names), 6)
             self.assertTrue(any(name.endswith("_error.txt") for name in names))
             self.assertIn("manifest.json", names)
+            self.assertIn("interpretation/interpretation.csv", names)
+            self.assertIn("interpretation/interpretation.json", names)
+            self.assertIn("interpretation/status.json", names)
             self.assertIn("annotations/ricedata_gene_annotations.csv", names)
             self.assertIn("annotations/ricedata_references.csv", names)
             self.assertIn("expression/efp_expression_values.csv", names)
@@ -642,7 +646,7 @@ class CoreFunctionTests(unittest.TestCase):
                 fonts = list(root.iter(f"{{{w}}}rFonts"))
                 self.assertTrue(fonts, name)
                 for font in fonts:
-                    self.assertEqual(font.get(f"{{{w}}}eastAsia"), "仿宋")
+                    self.assertEqual(font.get(f"{{{w}}}eastAsia"), "华文仿宋")
                     self.assertEqual(font.get(f"{{{w}}}ascii"), "Times New Roman")
                     self.assertEqual(font.get(f"{{{w}}}hAnsi"), "Times New Roman")
                     self.assertEqual(font.get(f"{{{w}}}cs"), "Times New Roman")
@@ -656,7 +660,7 @@ class CoreFunctionTests(unittest.TestCase):
                 fonts = list(style.iter(f"{{{w}}}rFonts"))
                 self.assertTrue(fonts, style_id)
                 for font in fonts:
-                    self.assertEqual(font.get(f"{{{w}}}eastAsia"), "仿宋")
+                    self.assertEqual(font.get(f"{{{w}}}eastAsia"), "华文仿宋")
                     self.assertEqual(font.get(f"{{{w}}}ascii"), "Times New Roman")
                     self.assertEqual(font.get(f"{{{w}}}hAnsi"), "Times New Roman")
                 checked_styles.add(style_id)

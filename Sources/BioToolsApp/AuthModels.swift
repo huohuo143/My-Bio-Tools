@@ -1,6 +1,6 @@
 import Foundation
 
-struct UserProfile: Codable, Equatable {
+struct UserProfile: Codable, Equatable, Sendable {
     let id: String
     let email: String
     let realName: String
@@ -20,7 +20,7 @@ struct DeviceProfile: Codable, Identifiable, Equatable {
     let current: Bool
 }
 
-struct AuthTokens: Codable, Equatable {
+struct AuthTokens: Codable, Equatable, Sendable {
     let accessToken: String
     let accessExpiresAt: Int64
     let refreshToken: String
@@ -30,12 +30,12 @@ struct AuthTokens: Codable, Equatable {
     let serverTime: Int64
 }
 
-struct StoredSession: Codable, Equatable {
+struct StoredSession: Codable, Equatable, Sendable {
     let user: UserProfile
     let tokens: AuthTokens
 }
 
-struct SavedLoginCredentials: Codable, Equatable {
+struct SavedLoginCredentials: Codable, Equatable, Sendable {
     let email: String
     let password: String
 }

@@ -205,6 +205,8 @@ class AnalysisBundle:
     genetic_evidence: list[dict[str, object]] = field(default_factory=list)
     ricedata_references: list[dict[str, object]] = field(default_factory=list)
     sequence_plot_rows: list[dict[str, object]] = field(default_factory=list)
+    interpretations: list[dict[str, object]] = field(default_factory=list)
+    interpretation_status: dict[str, object] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=list)
     generated_at: str = ""

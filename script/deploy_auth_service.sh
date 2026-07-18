@@ -76,7 +76,20 @@ put_secrets() {
   for secret_name in PASSWORD_PEPPER IP_HASH_SALT LICENSE_PRIVATE_JWK LICENSE_PUBLIC_JWK RESEND_API_KEY; do
     keychain_get "$secret_name" | "$WRANGLER" secret put "$secret_name" "${wrangler_args[@]}"
   done
+  if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    gh auth token | "$WRANGLER" secret put GITHUB_RELEASES_TOKEN "${wrangler_args[@]}"
+  else
+    echo "GitHub CLI 尚未登录，无法配置私有 Release 下载凭据。" >&2
+    exit 1
+  fi
   tr -d '\r\n' < "$OMICS_KEY_FILE" | "$WRANGLER" secret put OMICS_DATABASE_KEY_B64 "${wrangler_args[@]}"
+  if [[ -n "${MY_BIO_TOOLS_UPDATE_MANIFEST_FILE:-}" ]]; then
+    if ! node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' "$MY_BIO_TOOLS_UPDATE_MANIFEST_FILE"; then
+      echo "更新清单不是有效 JSON，拒绝写入 Worker secret。" >&2
+      exit 1
+    fi
+    tr -d '\r\n' < "$MY_BIO_TOOLS_UPDATE_MANIFEST_FILE" | "$WRANGLER" secret put UPDATE_MANIFEST_JSON "${wrangler_args[@]}"
+  fi
   if [[ "$TARGET" == "staging" ]]; then
     keychain_get DEV_ADMIN_TOKEN | "$WRANGLER" secret put DEV_ADMIN_TOKEN "${wrangler_args[@]}"
   fi
@@ -84,7 +97,7 @@ put_secrets() {
 
 if [[ "$TARGET" == "production" ]]; then
   # Production Worker already exists. Add the new secret while the old,
-  # backward-compatible code is active, then deploy v1.8.0 without a login gap.
+  # backward-compatible code is active, then deploy the current release without a login gap.
   put_secrets
   "$WRANGLER" deploy "${wrangler_args[@]}"
 else

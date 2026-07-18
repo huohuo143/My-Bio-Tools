@@ -26,6 +26,7 @@ PHASE_WEIGHTS = OrderedDict(
         ("variation", 10.0),
         ("mirna_rnai", 10.0),
         ("literature_evidence", 10.0),
+        ("interpretation", 10.0),
         ("report", 10.0),
     ]
 )
@@ -43,6 +44,7 @@ PHASE_LABELS = OrderedDict(
         ("variation", "自然变异与单倍型"),
         ("mirna_rnai", "miRNA/RNAi"),
         ("literature_evidence", "文献与遗传证据"),
+        ("interpretation", "结果解读"),
         ("report", "报告生成"),
     ]
 )
@@ -87,6 +89,11 @@ class RiceGeneAnalysisRequest:
     mirna_offtargets: bool = False
     evidence_file_name: str = ""
     evidence_file_bytes: bytes = b""
+    interpretation_mode: str = "rules"
+    interpretation_provider: str = ""
+    interpretation_base_url: str = ""
+    interpretation_model: str = ""
+    interpretation_api_key: str = field(default="", repr=False, compare=False)
 
 
 @dataclass(frozen=True)
@@ -262,6 +269,8 @@ class AnalysisJobManager:
         if request.selected_predictors:
             phases.append("predictions")
         phases.extend(phase for phase in request.selected_deep_analyses if phase in PHASE_LABELS)
+        if request.interpretation_mode == "llm":
+            phases.append("interpretation")
         phases.append("report")
         return tuple(phases)
 
@@ -401,7 +410,9 @@ class AnalysisJobManager:
                     progress_items=progress_items,
                 )
         finally:
+            # API keys are only needed by the worker and must not remain in job history.
             with self._lock:
+                job.request = replace(job.request, interpretation_api_key="")
                 self._prune_locked()
 
     def _update_progress(

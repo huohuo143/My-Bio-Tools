@@ -23,6 +23,8 @@ fi
 
 "$ROOT_DIR/script/build_nlstradamus.sh"
 "$PYTHON" "$ROOT_DIR/script/verify_source.py"
+"$PYTHON" "$ROOT_DIR/script/test_report_interpretation.py"
+"$PYTHON" "$ROOT_DIR/script/test_codex_chatgpt.py"
 
 export PYINSTALLER_CONFIG_DIR="$LOCAL_BUILD_ROOT/config"
 "$PYTHON" -m PyInstaller \

@@ -1,6 +1,6 @@
 # My Bio Tools Auth Service
 
-My Bio Tools v1.8.0 的集中账号、审核、设备绑定与离线授权服务。服务只处理账号和授权元数据，不接收科研输入文件或分析结果。生产环境使用 `mybiotools.aizs.top`，Staging 与 Production 必须使用独立 D1 和独立签名密钥。
+My Bio Tools v1.9.1 的集中账号、审核、设备绑定、离线授权与应用更新服务。服务只处理账号、授权和更新元数据，不接收科研输入文件或分析结果。生产环境使用 `mybiotools.aizs.top`，Staging 与 Production 必须使用独立 D1 和独立签名密钥。
 
 ## 结构
 
@@ -33,7 +33,8 @@ npm test
    - `LICENSE_PUBLIC_JWK`：对应公钥 JWK JSON。
    - `IP_HASH_SALT`：审计日志来源摘要的随机盐。
    - `RESEND_API_KEY`：仅允许通过已验证发信域发送事务邮件的 Resend API Key。
-7. 执行 D1 migrations，先部署 staging，再进行生产部署。
+7. 在私有 GitHub 仓库 `huohuo143/My-Bio-Tools` 发布 Release；Worker 使用 `GITHUB_RELEASES_TOKEN` 代取安装包，客户端不会接触 GitHub 凭据。该 token 应优先使用仅对本仓库 Contents/Metadata 只读的 fine-grained token。更新清单 JSON 只通过 `UPDATE_MANIFEST_JSON` secret 提供。
+8. 执行 D1 migrations，先部署 staging，再进行生产部署。
 
 生产发信使用 Resend REST API，Cloudflare Workers、D1 与 Access 保持免费计划。Resend 免费计划当前上限为每月 3,000 封、每天 100 封和 1 个自定义域名；超过限额时授权服务会返回稳定的 `EMAIL_SEND_FAILED`，不会静默跳过邮箱验证。验证 `aizs.top` 前必须先导出 DNS 快照，不覆盖现有 MX/SPF/DKIM/DMARC。
 
@@ -44,7 +45,7 @@ Resend 只接收事务邮件所必需的收件地址、姓名和验证/重置链
 ### Ed25519 运行时兼容性
 
 - Node.js 导出 Ed25519 JWK 时可能附带非标准的 `alg: "Ed25519"`。密钥生成脚本会在写入 Keychain 前删除该字段，Worker 导入既有密钥时也会兼容性移除它；只清理元数据，不轮换密钥。
-- `/health` 会验证生产签名密钥对和多组学密钥长度。上线验收必须同时得到 `status=ok`、`version=1.8.0`、`licenseSigning=ok`、`omicsKeyDelivery=ok`。
+- `/health` 会验证生产签名密钥对、多组学密钥长度与更新清单。上线验收必须同时得到 `status=ok`、`version=1.9.1`、`licenseSigning=ok`、`omicsKeyDelivery=ok`、`appUpdate=ok`。
 - 登录接口会先完成签名配置自检，再创建设备和会话，避免签名故障遗留无效会话。
 - 不要手工修改 JWK 的 `kty`、`crv`、`x`、`d`；需要真正轮换密钥时，必须同步重建所有客户端。
 
@@ -54,6 +55,8 @@ Resend 只接收事务邮件所必需的收件地址、姓名和验证/重置链
 2. 执行 `../script/prepare_auth_secrets.sh`，密钥会进入 macOS Keychain，不输出明文。
 3. 在被 Git 忽略的 `wrangler.jsonc` 填入 D1 ID、Access Team Domain 和 AUD。
 4. 依次执行 `../script/deploy_auth_service.sh staging` 和 `../script/deploy_auth_service.sh production`。
+
+正式版本使用 `../script/publish_app_update.sh production <DMG>` 一次完成 GitHub Release、资源大小校验、更新清单写入和 Worker 部署。发布脚本不会覆盖已有同名 Release 资源。
 
 `My Bio Tools Admin` Access 应用必须使用同一 AUD 同时保护 `/admin`、`/admin/*`、`/api/v1/admin`、`/api/v1/admin/*`，不得保护整个主机，否则 App 注册与登录会被拦截。
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_BUNDLE="${1:-$ROOT_DIR/dist/My Bio Tools.app}"
-DMG="${2:-$ROOT_DIR/dist/My-Bio-Tools-1.8.0-$(uname -m).dmg}"
+DMG="${2:-$ROOT_DIR/dist/My-Bio-Tools-1.9.1-$(uname -m).dmg}"
 
 if [[ ! -d "$APP_BUNDLE" ]]; then
   echo "找不到 App：$APP_BUNDLE" >&2

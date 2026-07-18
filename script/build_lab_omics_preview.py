@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a compact, inspectable v1.8.0 multi-omics preview export."""
+"""Generate a compact, inspectable v1.9.1 multi-omics preview export."""
 
 from __future__ import annotations
 
@@ -61,7 +61,7 @@ def main() -> int:
         lab_omics_profiles=list(result["profiles"]),
         lab_omics_status=list(result["status"]),
         analysis_options={
-            "app_version": "1.8.0 (build 18)",
+            "app_version": "1.9.1 (build 20)",
             "lab_omics_schema": result.get("database_schema", ""),
             "preview": True,
         },

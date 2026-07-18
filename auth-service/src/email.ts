@@ -13,7 +13,7 @@ async function send(env: Env, to: string, subject: string, text: string, html: s
     headers: {
       authorization: `Bearer ${env.RESEND_API_KEY}`,
       "content-type": "application/json",
-      "user-agent": "MyBioToolsAuth/1.8.0",
+      "user-agent": "MyBioToolsAuth/1.9.1",
     },
     body: JSON.stringify({
       from: env.EMAIL_FROM,

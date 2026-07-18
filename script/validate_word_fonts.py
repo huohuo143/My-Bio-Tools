@@ -104,7 +104,7 @@ def build_fixture() -> AnalysisBundle:
                 "GeneSymbol": "OsTEST1",
                 "RAP_Locus": "Os01g0100100",
                 "MSU_Locus": "LOC_Os01g01010",
-                "生物学功能": "用于验证中文仿宋与西文 Times New Roman 的混合排版。",
+                "生物学功能": "用于验证中文华文仿宋与西文 Times New Roman 的混合排版。",
                 "status": "matched",
                 "error": "",
             }
@@ -122,21 +122,21 @@ def build_fixture() -> AnalysisBundle:
                 probe_id="Os.1.1.S1_at",
             )
         ],
-        warnings=["字体验证样例：中文应为仿宋；Western text and IDs should use Times New Roman."],
+        warnings=["字体验证样例：中文应为华文仿宋；Western text and IDs should use Times New Roman."],
         sources=["IRGSP-1.0", "BAR Rice eFP"],
         generated_at="2026-07-18T12:00:00+08:00",
     )
 
 
 def main() -> int:
-    output_dir = ROOT / "analysis_results" / "v1.7.2_word_font_validation"
+    output_dir = ROOT / "analysis_results" / "v1.9.1_word_font_validation"
     output_dir.mkdir(parents=True, exist_ok=True)
     artifacts = build_report_artifacts(build_fixture(), "word_font_validation")
     payload = artifacts["docx"]
     if not isinstance(payload, bytes):
         raise TypeError("report builder did not return DOCX bytes")
     audit_docx(payload)
-    output_path = output_dir / "word_font_validation_v1.7.2.docx"
+    output_path = output_dir / "word_font_validation_v1.9.1.docx"
     output_path.write_bytes(payload)
     print(f"Word font validation passed: East Asia={CHINESE_FONT}; ASCII/HAnsi={WESTERN_FONT}")
     print(f"DOCX: {output_path}")

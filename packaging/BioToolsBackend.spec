@@ -28,6 +28,8 @@ hiddenimports = [
     "rice_gene_core",
     "prediction_services",
     "prediction_visualization",
+    "codex_chatgpt",
+    "report_interpretation",
     "report_builder",
     "rice_gene_analysis",
     "rice_efp",

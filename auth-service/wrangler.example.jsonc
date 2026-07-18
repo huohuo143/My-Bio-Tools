@@ -29,12 +29,6 @@
       "migrations_dir": "migrations"
     }
   ],
-  "r2_buckets": [
-    {
-      "binding": "RELEASES",
-      "bucket_name": "my-bio-tools-releases"
-    }
-  ],
   "ratelimits": [
     {
       "name": "AUTH_RATE_LIMITER",

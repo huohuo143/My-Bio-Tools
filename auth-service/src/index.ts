@@ -245,7 +245,9 @@ interface UpdateManifestConfiguration {
   minimumSystemVersion: string;
   size: number;
   sha256: string;
-  r2Key: string;
+  releaseSource: "github";
+  githubRepository: string;
+  githubAssetId: number;
   releaseNotes: string;
   publishedAt: string;
   mandatory?: boolean;
@@ -261,7 +263,9 @@ function updateManifestConfiguration(env: Env): UpdateManifestConfiguration {
     !/^\d+\.\d+\.\d+$/u.test(String(parsed.appVersion ?? "")) ||
     !Number.isSafeInteger(parsed.build) || Number(parsed.build) <= 0 ||
     !Number.isSafeInteger(parsed.size) || Number(parsed.size) <= 0 ||
-    !/^[a-f0-9]{64}$/u.test(sha256Hex) || !String(parsed.r2Key ?? "").startsWith("releases/") ||
+    !/^[a-f0-9]{64}$/u.test(sha256Hex) || parsed.releaseSource !== "github" ||
+    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(String(parsed.githubRepository ?? "")) ||
+    !Number.isSafeInteger(parsed.githubAssetId) || Number(parsed.githubAssetId) <= 0 ||
     !String(parsed.releaseNotes ?? "").trim() || !String(parsed.publishedAt ?? "").trim()
   ) {
     throw new Error("UPDATE_MANIFEST_JSON is incomplete or unsafe");
@@ -278,7 +282,8 @@ async function handleAppUpdate(request: Request, env: Env): Promise<Response> {
     platform: config.platform, bundle_identifier: config.bundleIdentifier,
     app_version: config.appVersion, build: config.build,
     minimum_system_version: config.minimumSystemVersion,
-    size: config.size, sha256: config.sha256, r2_key: config.r2Key,
+    size: config.size, sha256: config.sha256, release_source: config.releaseSource,
+    github_repository: config.githubRepository, github_asset_id: config.githubAssetId,
     release_notes: config.releaseNotes, published_at: config.publishedAt,
     mandatory: config.mandatory === true,
   };
@@ -288,18 +293,48 @@ async function handleAppUpdate(request: Request, env: Env): Promise<Response> {
 async function handleAppUpdateDownload(request: Request, env: Env): Promise<Response> {
   await requireUser(request, env);
   const config = updateManifestConfiguration(env);
-  const object = await env.RELEASES.get(config.r2Key);
-  if (!object) return error("UPDATE_NOT_FOUND", "更新安装包尚未发布。", 404);
-  if (object.size !== config.size) return error("UPDATE_SIZE_MISMATCH", "更新安装包大小与发布清单不一致。", 503);
+  const token = env.GITHUB_RELEASES_TOKEN?.trim();
+  if (!token) throw new Error("GITHUB_RELEASES_TOKEN is missing");
+  const githubFetch = env.GITHUB_TEST_FETCH ?? fetch;
+  const apiURL = `https://api.github.com/repos/${config.githubRepository}/releases/assets/${config.githubAssetId}`;
+  let upstream = await githubFetch(apiURL, {
+    headers: {
+      accept: "application/octet-stream",
+      authorization: `Bearer ${token}`,
+      "user-agent": "My-Bio-Tools-Update-Service/1.9.1",
+      "x-github-api-version": "2022-11-28",
+    },
+    redirect: "manual",
+  });
+  if (upstream.status >= 300 && upstream.status < 400) {
+    const location = upstream.headers.get("location");
+    if (!location) return error("UPDATE_DOWNLOAD_FAILED", "GitHub 未返回安装包下载地址。", 502);
+    const redirectURL = new URL(location);
+    const allowedHosts = new Set([
+      "github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com",
+      "github-releases.githubusercontent.com",
+    ]);
+    if (redirectURL.protocol !== "https:" || !allowedHosts.has(redirectURL.hostname)) {
+      return error("UPDATE_DOWNLOAD_FAILED", "GitHub 返回了不受信任的下载地址。", 502);
+    }
+    upstream = await githubFetch(redirectURL, { redirect: "follow" });
+  }
+  if (upstream.status === 404) return error("UPDATE_NOT_FOUND", "GitHub Release 中未找到更新安装包。", 404);
+  if (!upstream.ok || !upstream.body) return error("UPDATE_DOWNLOAD_FAILED", "GitHub 更新安装包暂时无法下载。", 502);
+  const upstreamLength = Number(upstream.headers.get("content-length"));
+  if (Number.isSafeInteger(upstreamLength) && upstreamLength > 0 && upstreamLength !== config.size) {
+    return error("UPDATE_SIZE_MISMATCH", "GitHub 安装包大小与发布清单不一致。", 503);
+  }
   const headers = new Headers({
     "content-type": "application/x-apple-diskimage",
-    "content-length": String(object.size),
+    "content-length": String(config.size),
     "content-disposition": `attachment; filename="My-Bio-Tools-${config.appVersion}-arm64.dmg"`,
     "cache-control": "private, no-store",
-    etag: object.httpEtag,
+    "x-content-type-options": "nosniff",
   });
-  object.writeHttpMetadata(headers);
-  return new Response(object.body, { headers });
+  const etag = upstream.headers.get("etag");
+  if (etag) headers.set("etag", etag);
+  return new Response(upstream.body, { headers });
 }
 
 async function handleLogout(request: Request, env: Env): Promise<Response> {
@@ -491,7 +526,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     await validateSigningConfiguration(env.LICENSE_PRIVATE_JWK, env.LICENSE_PUBLIC_JWK);
     validatedOmicsDatabaseKey(env.OMICS_DATABASE_KEY_B64);
     updateManifestConfiguration(env);
-    return json({ status: "ok", version: "1.9.0", licenseSigning: "ok", omicsKeyDelivery: "ok", appUpdate: "ok" });
+    return json({ status: "ok", version: "1.9.1", licenseSigning: "ok", omicsKeyDelivery: "ok", appUpdate: "ok" });
   }
   if (url.pathname === "/verify-email" && request.method === "GET") return handleVerifyEmail(url, request, env);
   if (url.pathname === "/reset-password" && request.method === "GET") return handleResetPasswordGet(url);

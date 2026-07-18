@@ -19,9 +19,9 @@ test("health endpoint exposes no secret configuration", async () => {
     OMICS_DATABASE_KEY_B64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     UPDATE_MANIFEST_JSON: JSON.stringify({
       platform: "macos-arm64", bundleIdentifier: "top.aizs.my-bio-tools",
-      appVersion: "1.9.0", build: 19, minimumSystemVersion: "13.0",
+      appVersion: "1.9.1", build: 20, minimumSystemVersion: "13.0",
       size: 1, sha256: "a".repeat(64),
-      r2Key: "releases/production/macos-arm64/fixture.dmg",
+      releaseSource: "github", githubRepository: "huohuo143/My-Bio-Tools", githubAssetId: 190019,
       releaseNotes: "fixture", publishedAt: "2026-07-18T18:30:00+08:00",
     }),
   } as Env;

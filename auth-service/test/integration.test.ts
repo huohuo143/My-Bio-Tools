@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import worker from "../src/index.ts";
-import type { D1Database, D1Result, D1Statement, Env, R2ObjectBody } from "../src/types.ts";
+import type { D1Database, D1Result, D1Statement, Env } from "../src/types.ts";
 
 class SQLiteStatement implements D1Statement {
   values: unknown[] = [];
@@ -50,7 +50,8 @@ async function fixture() {
   const releaseBytes = new TextEncoder().encode("fixture macOS update payload");
   const releaseDigest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", releaseBytes)))
     .map((value) => value.toString(16).padStart(2, "0")).join("");
-  const releaseKey = "releases/production/macos-arm64/My-Bio-Tools-1.9.0-arm64.dmg";
+  const githubRepository = "huohuo143/My-Bio-Tools";
+  const githubAssetId = 190019;
   const env: Env = {
     DB: db,
     EMAIL_TEST_SENDER: { async send(message) { mail.push(message as SentMail); return { messageId: crypto.randomUUID() }; } },
@@ -70,19 +71,19 @@ async function fixture() {
     DEV_ADMIN_TOKEN: "local-admin",
     UPDATE_MANIFEST_JSON: JSON.stringify({
       platform: "macos-arm64", bundleIdentifier: "top.aizs.my-bio-tools",
-      appVersion: "1.9.0", build: 19, minimumSystemVersion: "13.0",
-      size: releaseBytes.byteLength, sha256: releaseDigest, r2Key: releaseKey,
+      appVersion: "1.9.1", build: 20, minimumSystemVersion: "13.0",
+      size: releaseBytes.byteLength, sha256: releaseDigest,
+      releaseSource: "github", githubRepository, githubAssetId,
       releaseNotes: "增加科研解读与一键更新。", publishedAt: "2026-07-18T18:30:00+08:00",
       mandatory: false,
     }),
-    RELEASES: {
-      async get(key: string): Promise<R2ObjectBody | null> {
-        if (key !== releaseKey) return null;
-        return {
-          body: new Response(releaseBytes).body!, size: releaseBytes.byteLength,
-          httpEtag: '"fixture-etag"', writeHttpMetadata() {},
-        };
-      },
+    GITHUB_RELEASES_TOKEN: "test-github-token",
+    GITHUB_TEST_FETCH: async (input, init) => {
+      assert.equal(String(input), `https://api.github.com/repos/${githubRepository}/releases/assets/${githubAssetId}`);
+      assert.equal(new Headers(init?.headers).get("authorization"), "Bearer test-github-token");
+      return new Response(releaseBytes, {
+        headers: { "content-length": String(releaseBytes.byteLength), etag: '"fixture-etag"' },
+      });
     },
   };
   const request = (path: string, method = "GET", body?: unknown, bearer?: string, admin = false) => {
@@ -130,7 +131,7 @@ test("complete registration, review, device, reset, suspension and deletion life
   assert.equal(response.status, 200);
 
   const login = async (installationId: string) => request("/api/v1/login", "POST", {
-    email, password, installationId, platform: "macos", deviceName: installationId, appVersion: "1.8.0",
+    email, password, installationId, platform: "macos", deviceName: installationId, appVersion: "1.9.1",
   });
   const first = await login("installation-one");
   const firstBody = await responseBody(first);
@@ -147,8 +148,8 @@ test("complete registration, review, device, reset, suspension and deletion life
     typ: string; app_version: string; build: number; sha256: string;
   };
   assert.equal(updateClaims.typ, "app-update");
-  assert.equal(updateClaims.app_version, "1.9.0");
-  assert.equal(updateClaims.build, 19);
+  assert.equal(updateClaims.app_version, "1.9.1");
+  assert.equal(updateClaims.build, 20);
   assert.equal(updateClaims.sha256.length, 64);
   response = await request("/api/v1/app-update/download", "GET", undefined, firstBody.accessToken);
   assert.equal(response.status, 200);

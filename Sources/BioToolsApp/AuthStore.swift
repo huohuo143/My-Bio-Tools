@@ -11,6 +11,7 @@ final class AuthStore: ObservableObject {
     @Published private(set) var notice: String?
 
     private let keychain = KeychainStore()
+    private let legacyKeychain = KeychainStore(service: "top.aizs.my-bio-tools.auth")
     private let verifier = LicenseVerifier()
     private var configuration: AuthConfiguration?
     private var api: AuthAPIClient?
@@ -57,8 +58,8 @@ final class AuthStore: ObservableObject {
             let configuration = try AuthConfiguration.load()
             self.configuration = configuration
             api = AuthAPIClient(configuration: configuration)
-            installationID = try loadOrCreateInstallationID()
-            session = try loadSession()
+            installationID = try await loadOrCreateInstallationID()
+            session = try await loadSession()
             if session == nil {
                 phase = .signedOut
                 return
@@ -98,12 +99,18 @@ final class AuthStore: ObservableObject {
         }
     }
 
-    func savedLoginCredentials() -> SavedLoginCredentials? {
+    func savedLoginCredentials() async -> SavedLoginCredentials? {
+        let keychain = self.keychain
+        let legacyKeychain = self.legacyKeychain
+        let account = Self.savedLoginAccount
         do {
-            guard let data = try keychain.data(for: Self.savedLoginAccount) else { return nil }
-            return try JSONDecoder().decode(SavedLoginCredentials.self, from: data)
+            return try await Task.detached(priority: .userInitiated) {
+                let data = try keychain.data(for: account) ?? legacyKeychain.data(for: account)
+                guard let data else { return nil }
+                return try JSONDecoder().decode(SavedLoginCredentials.self, from: data)
+            }.value
         } catch {
-            try? keychain.delete(Self.savedLoginAccount)
+            notice = "未能读取已保存的账号和密码，可重新输入后保存：\(error.localizedDescription)"
             return nil
         }
     }
@@ -168,7 +175,7 @@ final class AuthStore: ObservableObject {
                     token: current.tokens.offlineLicense,
                     publicJWK: configuration.publicJWK,
                     installationID: installationID,
-                    lastTrustedServerTime: try loadTrustedTime()
+                    lastTrustedServerTime: try await loadTrustedTime()
                 )
                 authorization = BackendAuthorization(
                     offlineLicense: current.tokens.offlineLicense,
@@ -231,7 +238,7 @@ final class AuthStore: ObservableObject {
             )
         } catch LicenseError.missingOmicsKey {
             throw AuthClientError.configuration(
-                "授权服务仍在返回旧版授权数据，未包含 v1.8.0 所需的多组学解锁信息。请升级授权服务后重试。"
+                "授权服务仍在返回旧版授权数据，未包含当前版本所需的多组学解锁信息。请升级授权服务后重试。"
             )
         }
         session = next
@@ -277,23 +284,65 @@ final class AuthStore: ObservableObject {
         notice = message
     }
 
-    private func loadOrCreateInstallationID() throws -> String {
-        if let data = try keychain.data(for: Self.installationAccount),
-           let value = String(data: data, encoding: .utf8), !value.isEmpty { return value }
-        let value = UUID().uuidString.lowercased()
-        try keychain.save(Data(value.utf8), for: Self.installationAccount)
-        return value
+    private func loadOrCreateInstallationID() async throws -> String {
+        let keychain = self.keychain
+        let account = Self.installationAccount
+        return try await Task.detached(priority: .userInitiated) {
+            let fileManager = FileManager.default
+            let support = try fileManager.url(
+                for: .applicationSupportDirectory, in: .userDomainMask,
+                appropriateFor: nil, create: true
+            )
+            let directory = support.appending(path: "My Bio Tools", directoryHint: .isDirectory)
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            let fallbackURL = directory.appending(path: "installation-id")
+            var mayCreateKeychainItem = true
+            do {
+                if let data = try keychain.data(for: account, interactionAllowed: false),
+                   let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil {
+                    try data.write(to: fallbackURL, options: .atomic)
+                    try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fallbackURL.path)
+                    return value
+                }
+            } catch {
+                mayCreateKeychainItem = false
+            }
+            if let data = try? Data(contentsOf: fallbackURL),
+               let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil {
+                return value
+            }
+            let value = UUID().uuidString.lowercased()
+            let data = Data(value.utf8)
+            try data.write(to: fallbackURL, options: .atomic)
+            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fallbackURL.path)
+            if mayCreateKeychainItem { try? keychain.save(data, for: account) }
+            return value
+        }.value
     }
 
-    private func loadSession() throws -> StoredSession? {
-        guard let data = try keychain.data(for: Self.sessionAccount) else { return nil }
-        return try JSONDecoder().decode(StoredSession.self, from: data)
+    private func loadSession() async throws -> StoredSession? {
+        let keychain = self.keychain
+        let account = Self.sessionAccount
+        return try await Task.detached(priority: .userInitiated) {
+            let candidate: Data?
+            do { candidate = try keychain.data(for: account, interactionAllowed: false) }
+            catch { return nil }
+            guard let data = candidate else { return nil }
+            return try JSONDecoder().decode(StoredSession.self, from: data)
+        }.value
     }
 
-    private func loadTrustedTime() throws -> Int64? {
-        guard let data = try keychain.data(for: Self.trustedTimeAccount),
-              let string = String(data: data, encoding: .utf8) else { return nil }
-        return Int64(string)
+    private func loadTrustedTime() async throws -> Int64? {
+        let keychain = self.keychain
+        let account = Self.trustedTimeAccount
+        return await Task.detached(priority: .userInitiated) {
+            let candidate: Data?
+            do { candidate = try keychain.data(for: account, interactionAllowed: false) }
+            catch { return nil }
+            guard let data = candidate,
+                  let string = String(data: data, encoding: .utf8) else { return nil }
+            return Int64(string)
+        }.value
     }
 
     private func saveLoginCredentials(email: String, password: String) throws {

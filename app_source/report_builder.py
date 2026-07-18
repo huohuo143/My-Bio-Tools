@@ -30,9 +30,12 @@ from rice_gene_core import (
     sequence_records_to_fasta,
 )
 from rice_efp import EFP_DATA_SOURCES, EFP_SOURCE_GLOSSARY, EFP_GUIDE_URL, EFP_URL, efp_source_display_label, expression_top_rows
+from report_interpretation import build_rule_interpretations
 
 
-CHINESE_FONT = "仿宋"
+# Use the actual macOS/PostScript family name so Word and LibreOffice resolve
+# the requested FangSong face instead of rendering missing-glyph boxes.
+CHINESE_FONT = "华文仿宋"
 WESTERN_FONT = "Times New Roman"
 EXCEL_FONT = "Arial"
 BODY_SIZE = 10.5
@@ -275,6 +278,28 @@ def _add_callout(doc: Document, label: str, text: str, *, fill: str = CALLOUT_FI
     body = paragraph.add_run(text)
     _format_run(body, size=10, color=RGBColor(23, 32, 51))
     doc.add_paragraph().paragraph_format.space_after = Pt(0)
+
+
+def _interpretation_rows(bundle: AnalysisBundle, sections: set[str] | None = None) -> list[dict[str, object]]:
+    rows = bundle.interpretations or build_rule_interpretations(bundle)
+    return [row for row in rows if sections is None or str(row.get("section") or "") in sections]
+
+
+def _add_interpretation_blocks(doc: Document, bundle: AnalysisBundle, sections: set[str]) -> None:
+    for row in _interpretation_rows(bundle, sections):
+        ai_assisted = str(row.get("section") or "").startswith("ai_")
+        label = str(row.get("title") or "结果解读")
+        if ai_assisted:
+            label += "（AI辅助推断·待人工核验）"
+        text = (
+            f"{row.get('interpretation') or ''}\n"
+            f"证据依据：{row.get('evidence_basis') or '—'}；"
+            f"证据等级：{row.get('evidence_level') or '—'}；"
+            f"置信度：{row.get('confidence') or '—'}。\n"
+            f"解读边界：{row.get('limitations') or '—'}\n"
+            f"建议下一步：{row.get('recommended_action') or '—'}"
+        )
+        _add_callout(doc, label, text, fill=CAUTION_FILL if ai_assisted else CALLOUT_FILL)
 
 
 def _compact_text(value: object, limit: int = 90) -> str:
@@ -929,7 +954,7 @@ def build_word_report(
     prediction_charts: dict[str, bytes] | None = None,
     deep_charts: dict[str, bytes] | None = None,
 ) -> bytes:
-    """Build the v1.8.0 evidence-led report with seven coherent chapters."""
+    """Build the v1.9.1 evidence-led report with seven coherent chapters."""
     doc = Document()
     _configure_styles(doc)
     section = doc.sections[0]
@@ -942,7 +967,7 @@ def build_word_report(
     section.header_distance = Inches(0.492)
     section.footer_distance = Inches(0.492)
     header = section.header.paragraphs[0]
-    header.text = "My Bio Tools v1.8.0 · 水稻基因一站式分析"
+    header.text = "My Bio Tools v1.9.1 · 水稻基因一站式分析"
     _format_paragraph_runs(header, size=9, color=MUTED)
     _add_page_number(section.footer.paragraphs[0])
 
@@ -961,7 +986,10 @@ def build_word_report(
         ("参考边界", "IRGSP-1.0；RAP/MSU 结果按来源分别保留"),
         ("生成时间", bundle.generated_at),
         ("正文策略", "仅展示主图和 Top 记录；完整明细见 Excel/ZIP/附录"),
+        ("结果解读", "离线科研规则" + (" + 大模型增强（待人工核验）" if bundle.interpretation_status.get("effective_mode") == "llm" else "")),
     ])
+    doc.add_heading("报告解读摘要", level=2)
+    _add_interpretation_blocks(doc, bundle, {"overall", "ai_overall"})
 
     _start_chapter(doc, "1", "基因概览与 ID 映射", "先确认输入基因的统一身份、RAP/MSU/Transcript 对应关系、GeneSymbol、assembly 和数据完整度。")
     matched_sequences = sum(record.status == "matched" for record in bundle.sequences)
@@ -1030,6 +1058,8 @@ def build_word_report(
         "本次没有实验室多组学差异记录。",
     )
     _add_callout(doc, "多组学注意事项", "跨项目只使用各源分析表已有log2FC；项目内热图使用已有FPKM、TPM、count或归一化蛋白/PTM定量。不同组学的原始值不直接比较；缺失值为灰色；无可核实重复的数据只作描述性结果。", fill=CAUTION_FILL)
+    doc.add_heading("多组学科研解读", level=2)
+    _add_interpretation_blocks(doc, bundle, {"lab_omics", "ai_lab_omics"})
 
     _start_chapter(doc, "4", "序列、转录本与蛋白结构", "把输入 ID、RAP/MSU 映射、promoter/genomic/UTR/CDS/protein、真实基因结构和蛋白结构域合并到一条可追溯链。")
     cds_rows = [row for row in bundle.sequence_plot_rows if row.get("sequence_type") == "CDS"]
@@ -1086,6 +1116,15 @@ def build_word_report(
     doc.add_heading("序列变异影响", level=2)
     _add_first_png(doc, visual_charts, ("variation/",), "5.3", "Variant distribution or haplotype summary")
     _add_table_or_status(doc, _variant_priority_rows(bundle.variants), [("position", "Position"), ("alleles", "REF → ALT"), ("region", "Region"), ("consequence", "Consequence"), ("af", "ALT AF"), ("qc", "REF/QC")], [1100, 1300, 1800, 2860, 1000, 1300], "未取得可解析变异；没有样本基因型矩阵时不推断单倍型。")
+    haplotype_columns = [
+        ("haplotype", "Haplotype"), ("sample_count", "Samples"),
+        ("sample_frequency", "Frequency"), ("filtered_variant_count", "Variants"),
+        ("subgroup_frequency", "Groups"),
+    ]
+    doc.add_heading("单倍型汇总", level=2)
+    _add_table_or_status(doc, bundle.haplotypes[:20], haplotype_columns, [1800, 1100, 1200, 1100, 4160], "未形成单倍型汇总。")
+    doc.add_heading("单倍型科研解读", level=2)
+    _add_interpretation_blocks(doc, bundle, {"haplotype", "ai_haplotype"})
     _add_callout(doc, "注意事项", "TFBS、定位、miRNA/RNAi 和大多数变异影响均为计算预测；需结合独立实验、群体材料及 assembly/REF 一致性验证。", fill=CAUTION_FILL)
 
     _start_chapter(doc, "6", "综合科研判断与验证优先级", "把证据等级、冲突、关键缺口和实验优先级集中归纳，并回链到前述章节。")
@@ -1098,6 +1137,7 @@ def build_word_report(
         ("推荐实验", "先验证与直接文献证据、表达场景和结构/变异线索同时一致的假设；随后开展遗传互补、亚细胞定位、酶活/互作及目标处理下表型验证。"),
     ])
     _add_callout(doc, "证据分级", "已有数据库/文献证据 ≠ 计算预测；计算支持 ≠ 因果结论；合理推测必须由明确实验验证。所有建议仅由本报告前述记录汇总，不新增无来源机制。", fill=CAUTION_FILL)
+    _add_interpretation_blocks(doc, bundle, {"overall", "ai_overall", "ai_integrated"})
 
     _start_chapter(doc, "7", "方法、来源与警告", "集中记录数据库版本、检索日期、参数、失败服务和 assembly 边界，供复现与审阅。")
     _add_callout(doc, "关键结论", f"共记录 {len(bundle.sources)} 个数据/服务来源和 {len(bundle.warnings)} 条警告。一般警告集中在本章；正文仅保留会改变解释的边界提示。")
@@ -1200,7 +1240,7 @@ def build_excel_report(bundle: AnalysisBundle) -> bytes:
     workbook = Workbook()
     workbook.remove(workbook.active)
     overview = [
-        {"item": "app_version", "value": "1.8.0 (build 18)"},
+        {"item": "app_version", "value": "1.9.1 (build 20)"},
         {"item": "mode", "value": bundle.mode},
         {"item": "input_type", "value": bundle.input_type},
         {"item": "input_count", "value": len(bundle.inputs)},
@@ -1211,9 +1251,23 @@ def build_excel_report(bundle: AnalysisBundle) -> bytes:
         {"item": "lab_omics_dataset_count", "value": len(bundle.lab_omics_datasets)},
         {"item": "lab_omics_differential_count", "value": len(bundle.lab_omics_differential)},
         {"item": "lab_omics_profile_count", "value": len(bundle.lab_omics_profiles)},
+        {"item": "interpretation_requested_mode", "value": bundle.interpretation_status.get("requested_mode", "rules")},
+        {"item": "interpretation_effective_mode", "value": bundle.interpretation_status.get("effective_mode", "rules")},
+        {"item": "interpretation_provider", "value": bundle.interpretation_status.get("provider", "")},
+        {"item": "interpretation_provider_label", "value": bundle.interpretation_status.get("provider_label", "")},
+        {"item": "interpretation_model", "value": bundle.interpretation_status.get("model", "")},
+        {"item": "interpretation_client_version", "value": bundle.interpretation_status.get("client_version", "")},
+        {"item": "interpretation_error_code", "value": bundle.interpretation_status.get("error_code", "")},
+        {"item": "interpretation_error", "value": bundle.interpretation_status.get("error", "")},
         {"item": "generated_at", "value": bundle.generated_at},
     ]
     _sheet_from_rows(workbook, "Overview", overview, ["item", "value"])
+    interpretation_rows = _interpretation_rows(bundle)
+    interpretation_columns = [
+        "section", "title", "interpretation", "evidence_basis", "evidence_level",
+        "confidence", "limitations", "recommended_action", "source_refs",
+    ]
+    _sheet_from_rows(workbook, "Interpretation", interpretation_rows, interpretation_columns)
     mapping_columns = ["input_id", "input_type", "resolved_rap_gene", "resolved_msu_id", "mapping_count", "status", "note", "error"]
     _sheet_from_rows(workbook, "ID_Mapping", bundle.mapping_rows, mapping_columns)
     ricedata_columns = list(bundle.ricedata_rows[0].keys()) if bundle.ricedata_rows else ["check", "status", "error"]
@@ -1388,6 +1442,10 @@ def build_analysis_zip(
             archive.writestr(name.replace("/", "/raw/", 1), payload)
         archive.writestr("deep_analysis/parameters.json", json.dumps(bundle.analysis_options, ensure_ascii=False, indent=2).encode("utf-8"))
         archive.writestr("deep_analysis/sources.json", json.dumps(bundle.sources, ensure_ascii=False, indent=2).encode("utf-8"))
+        interpretation_rows = _interpretation_rows(bundle)
+        archive.writestr("interpretation/interpretation.csv", _rows_to_csv_bytes(interpretation_rows))
+        archive.writestr("interpretation/interpretation.json", json.dumps(interpretation_rows, ensure_ascii=False, indent=2).encode("utf-8"))
+        archive.writestr("interpretation/status.json", json.dumps(bundle.interpretation_status, ensure_ascii=False, indent=2).encode("utf-8"))
         archive.writestr(
             "manifest.json",
             json.dumps(bundle.as_dict(), ensure_ascii=False, indent=2).encode("utf-8"),
@@ -1395,9 +1453,9 @@ def build_analysis_zip(
         archive.writestr(
             "README.txt",
             (
-                "My Bio Tools v1.8.0 (build 18) - rice gene analysis bundle\n"
+                "My Bio Tools v1.9.1 (build 20) - rice gene analysis bundle\n"
                 f"Generated: {bundle.generated_at}\n"
-                "Word fonts: East Asia=仿宋; ASCII/HAnsi=Times New Roman.\n"
+                "Word fonts: East Asia=华文仿宋; ASCII/HAnsi=Times New Roman.\n"
                 "All localization outputs are computational predictions and require experimental validation.\n"
             ).encode("utf-8"),
         )
@@ -1415,6 +1473,17 @@ def build_report_artifacts(
 ) -> dict[str, bytes | str]:
     if not bundle.generated_at:
         bundle.generated_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    if not bundle.interpretations:
+        bundle.interpretations = build_rule_interpretations(bundle)
+    if not bundle.interpretation_status:
+        bundle.interpretation_status = {
+            "requested_mode": "rules",
+            "effective_mode": "rules",
+            "rule_section_count": len(bundle.interpretations),
+            "ai_section_count": 0,
+            "error": "",
+            "privacy": "离线规则解读未向外部模型发送数据。",
+        }
     stem = (
         f"rice_gene_analysis_{safe_file_stem(primary_name)}"
         if bundle.mode == "单基因深度分析"

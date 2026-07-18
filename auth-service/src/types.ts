@@ -38,17 +38,6 @@ export interface RateLimitBinding {
   limit(input: { key: string }): Promise<{ success: boolean }>;
 }
 
-export interface R2ObjectBody {
-  body: ReadableStream;
-  size: number;
-  httpEtag: string;
-  writeHttpMetadata(headers: Headers): void;
-}
-
-export interface R2Bucket {
-  get(key: string): Promise<R2ObjectBody | null>;
-}
-
 export interface Env {
   DB: D1Database;
   EMAIL_TEST_SENDER?: EmailSender;
@@ -68,7 +57,8 @@ export interface Env {
   IP_HASH_SALT: string;
   DEV_ADMIN_TOKEN?: string;
   UPDATE_MANIFEST_JSON: string;
-  RELEASES: R2Bucket;
+  GITHUB_RELEASES_TOKEN: string;
+  GITHUB_TEST_FETCH?: typeof fetch;
 }
 
 export interface UserRow {
@@ -144,7 +134,9 @@ export interface UpdateManifestClaims {
   minimum_system_version: string;
   size: number;
   sha256: string;
-  r2_key: string;
+  release_source: "github";
+  github_repository: string;
+  github_asset_id: number;
   release_notes: string;
   published_at: string;
   mandatory: boolean;

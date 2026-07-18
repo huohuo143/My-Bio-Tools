@@ -209,7 +209,7 @@ def fetch_rapdb_genetic_evidence(rap_ids: list[str], session: requests.Session |
     keywords = re.compile(r"allele|variation|variant|mutation|mutant|phenotype|QTL", re.I)
     for rap_id in dict.fromkeys(value for value in rap_ids if value):
         try:
-            response = client.get(RAPDB_URL, params={"name": rap_id}, timeout=(8, 40), headers={"User-Agent": "MyBioTools/1.8.0"})
+            response = client.get(RAPDB_URL, params={"name": rap_id}, timeout=(8, 40), headers={"User-Agent": "MyBioTools/1.9.1"})
             response.raise_for_status(); raw[f"{rap_id}/rapdb_gene_detail.html"] = response.content
             soup = BeautifulSoup(response.text, "html.parser"); matched = 0
             for row in soup.find_all("tr"):

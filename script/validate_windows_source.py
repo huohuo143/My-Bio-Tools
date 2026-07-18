@@ -38,6 +38,9 @@ EXPECTED_WINDOWS_FILES = [
     ROOT / "windows" / "installer" / "MyBioTools.iss",
     ROOT / "script" / "build_windows.ps1",
     ROOT / "script" / "test_windows_runtime.ps1",
+    ROOT / "script" / "test_codex_chatgpt.py",
+    APP_SOURCE / "codex_chatgpt.py",
+    APP_SOURCE / "report_interpretation.py",
     ROOT / "packaging" / "THIRD_PARTY_NOTICES.txt",
 ]
 
@@ -94,7 +97,10 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         "UseWPF": "true",
         "RuntimeIdentifier": "win-x64",
         "SelfContained": "true",
-        "Version": "1.7.2",
+        "Version": "1.9.1",
+        "AssemblyVersion": "1.9.1.0",
+        "FileVersion": "1.9.1.0",
+        "InformationalVersion": "1.9.1",
     }
     for key, expected in expected_values.items():
         if values.get(key) != expected:
@@ -164,6 +170,10 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         failures.append("Windows PyInstaller spec does not discover modules from tool_catalog")
     else:
         checks.append("catalog-driven PyInstaller hidden imports")
+    if '"codex_chatgpt"' not in windows_spec or '"report_interpretation"' not in windows_spec:
+        failures.append("Windows PyInstaller spec does not include ChatGPT/Codex interpretation modules")
+    else:
+        checks.append("ChatGPT/Codex frozen backend modules")
     if (
         "module_collection_mode" not in windows_spec
         or '"docx": "pyz+py"' not in windows_spec
@@ -171,6 +181,24 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         failures.append("Windows PyInstaller spec does not preserve python-docx package directories")
     else:
         checks.append("python-docx frozen package layout")
+
+    codex_source = (APP_SOURCE / "codex_chatgpt.py").read_text(encoding="utf-8")
+    interpretation_source = (APP_SOURCE / "report_interpretation.py").read_text(encoding="utf-8")
+    codex_contract = {
+        "official Windows Codex location": "Programs/OpenAI/Codex/bin/codex.exe",
+        "hidden Windows subprocess": "CREATE_NO_WINDOW",
+        "ephemeral Codex session": "--ephemeral",
+        "strict Codex JSON schema": "--output-schema",
+        "tool-disabled Codex invocation": '"shell_tool"',
+        "ChatGPT-authenticated provider": 'PROVIDER_CODEX_CHATGPT = "codex_chatgpt"',
+        "offline fallback error code": 'status["error_code"]',
+    }
+    codex_combined = codex_source + interpretation_source
+    for description, token in codex_contract.items():
+        if token not in codex_combined:
+            failures.append(f"missing Codex behavior: {description}")
+        else:
+            checks.append(description)
 
     build_script = (ROOT / "script" / "build_windows.ps1").read_text(encoding="utf-8")
     installer_script = (ROOT / "windows" / "installer" / "MyBioTools.iss").read_text(
@@ -184,6 +212,7 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         "SHA256SUMS.txt",
         "validate_ricedata_live.py",
         "validate_efp_live.py",
+        "test_codex_chatgpt.py",
         "PrivilegesRequired=lowest",
         "ArchitecturesAllowed=x64compatible",
         "MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
@@ -289,7 +318,7 @@ def validate_staged_app(
     if manifest_path.is_file():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-            if manifest.get("version") != "1.7.2" or manifest.get("platform") != "win-x64":
+            if manifest.get("version") != "1.9.1" or manifest.get("platform") != "win-x64":
                 failures.append("staged version manifest has unexpected version or platform")
         except Exception as exc:
             failures.append(f"cannot parse staged version manifest: {exc}")

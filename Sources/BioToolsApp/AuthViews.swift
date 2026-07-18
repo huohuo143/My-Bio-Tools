@@ -54,7 +54,6 @@ struct AuthGateView: View {
             }
         }
         .frame(minWidth: 760, minHeight: 580)
-        .task { restoreSavedCredentialsIfNeeded() }
     }
 
     private var form: some View {
@@ -147,12 +146,13 @@ struct AuthGateView: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .padding(48)
         }
+        .task { await restoreSavedCredentialsIfNeeded() }
     }
 
-    private func restoreSavedCredentialsIfNeeded() {
+    private func restoreSavedCredentialsIfNeeded() async {
         guard !didRestoreSavedCredentials else { return }
         didRestoreSavedCredentials = true
-        guard let credentials = auth.savedLoginCredentials() else { return }
+        guard let credentials = await auth.savedLoginCredentials() else { return }
         email = credentials.email
         password = credentials.password
         rememberCredentials = true
@@ -222,6 +222,7 @@ struct AccountView: View {
                         ProgressView("正在检查更新…").controlSize(.small)
                     case let .available(manifest), let .downloading(manifest), let .preparing(manifest):
                         LabeledContent("可用版本", value: "\(manifest.appVersion)（build \(manifest.build)）")
+                        LabeledContent("安装包大小", value: ByteCountFormatter.string(fromByteCount: manifest.size, countStyle: .file))
                         Text(manifest.releaseNotes).font(.callout).foregroundStyle(.secondary)
                         if case .downloading = updates.phase {
                             ProgressView("正在下载并校验…").controlSize(.small)

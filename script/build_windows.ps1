@@ -15,7 +15,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "1.7.2"
+$Version = "1.9.1"
 $RuntimeInstallerName = "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 $RuntimeInstallerUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 $Venv = Join-Path $Root ".build-venv-win"
@@ -136,6 +136,8 @@ Write-Host "[3/9] 验证源码与全部 Streamlit 页面"
 if (-not $SkipTests) {
     Invoke-Native $VenvPython @((Join-Path $Root "script\verify_source.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_core_functions.py"))
+    Invoke-Native $VenvPython @((Join-Path $Root "script\test_report_interpretation.py"))
+    Invoke-Native $VenvPython @((Join-Path $Root "script\test_codex_chatgpt.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_prediction_adapters.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_streamlit_pages.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_streamlit_workflows.py"))

@@ -20,7 +20,9 @@ struct AppUpdateManifest: Codable, Equatable {
     let minimumSystemVersion: String
     let size: Int64
     let sha256: String
-    let r2Key: String
+    let releaseSource: String
+    let githubRepository: String
+    let githubAssetID: Int64
     let releaseNotes: String
     let publishedAt: String
     let mandatory: Bool
@@ -33,7 +35,9 @@ struct AppUpdateManifest: Codable, Equatable {
         case bundleIdentifier = "bundle_identifier"
         case appVersion = "app_version"
         case minimumSystemVersion = "minimum_system_version"
-        case r2Key = "r2_key"
+        case releaseSource = "release_source"
+        case githubRepository = "github_repository"
+        case githubAssetID = "github_asset_id"
         case releaseNotes = "release_notes"
         case publishedAt = "published_at"
     }
@@ -66,6 +70,10 @@ struct UpdateManifestVerifier {
               manifest.bundleIdentifier == "top.aizs.my-bio-tools",
               manifest.expiresAt > current, manifest.issuedAt <= current + 300,
               manifest.size > 0, manifest.build > 0,
+              manifest.releaseSource == "github",
+              manifest.githubRepository == "huohuo143/My-Bio-Tools",
+              manifest.githubAssetID > 0,
+              manifest.minimumSystemVersion.range(of: "^\\d+(?:\\.\\d+){0,2}$", options: .regularExpression) != nil,
               manifest.sha256.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else {
             throw AppUpdateError.invalidManifest
         }
@@ -112,6 +120,11 @@ final class AppUpdateStore: ObservableObject {
         do {
             let manifest = try await AppUpdateClient().manifest(context: context)
             if manifest.build > currentBuild {
+                guard supportsCurrentSystem(manifest.minimumSystemVersion) else {
+                    phase = .failed("新版本需要 macOS \(manifest.minimumSystemVersion) 或更高版本。")
+                    notice = "请先升级 macOS。"
+                    return
+                }
                 phase = .available(manifest)
                 notice = "发现 My Bio Tools \(manifest.appVersion)（build \(manifest.build)）。"
             } else {
@@ -157,6 +170,18 @@ final class AppUpdateStore: ObservableObject {
         case .checking, .downloading, .preparing: true
         default: false
         }
+    }
+
+    private func supportsCurrentSystem(_ minimum: String) -> Bool {
+        let parts = minimum.split(separator: ".").compactMap { Int($0) }
+        guard !parts.isEmpty else { return false }
+        return ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(
+                majorVersion: parts[0],
+                minorVersion: parts.count > 1 ? parts[1] : 0,
+                patchVersion: parts.count > 2 ? parts[2] : 0
+            )
+        )
     }
 }
 

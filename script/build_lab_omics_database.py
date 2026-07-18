@@ -285,7 +285,7 @@ class OmicsDatabaseBuilder:
             "INSERT INTO metadata(key,value) VALUES (?,?)",
             [
                 ("schema_version", "1"),
-                ("app_target", "My Bio Tools v1.8.0"),
+                ("app_target", "My Bio Tools v1.9.1"),
                 ("primary_gene_key", "MSU locus without model suffix"),
                 ("raw_data_reanalysed", "false"),
                 ("mapping_reference", str(resolver.mapping_path)),

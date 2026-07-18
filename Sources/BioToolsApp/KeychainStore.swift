@@ -1,7 +1,8 @@
 import Foundation
+import LocalAuthentication
 import Security
 
-struct KeychainStore {
+struct KeychainStore: Sendable {
     enum Accessibility {
         case afterFirstUnlock
         case whenUnlocked
@@ -18,17 +19,20 @@ struct KeychainStore {
 
     private let service: String
 
-    init(service: String = "top.aizs.my-bio-tools.auth") {
+    init(service: String = "top.aizs.my-bio-tools.auth.v2") {
         self.service = service
     }
 
-    func data(for account: String) throws -> Data? {
+    func data(for account: String, interactionAllowed: Bool = true) throws -> Data? {
+        let context = LAContext()
+        context.interactionNotAllowed = !interactionAllowed
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecUseAuthenticationContext as String: context,
         ]
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)

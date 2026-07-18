@@ -193,7 +193,7 @@ WORKFLOW_EXPLANATIONS = (
         "data_nature": "可追溯交付物",
         "source": "APP 内置 report_builder",
         "method": "将关键结论、方法、图形和风险写入 Word，将完整明细分 sheet 写入 Excel，再把 FASTA、原始结果、SVG/PDF/PNG、CSV 和 manifest 打包为 ZIP。",
-        "outputs": "中文仿宋/西文 Times New Roman 的 Word、多 sheet Excel、完整 ZIP、参数与版本 manifest、原始绘图数据。",
+        "outputs": "中文华文仿宋/西文 Times New Roman 的 Word、多 sheet Excel、完整 ZIP、参数与版本 manifest、原始绘图数据。",
         "boundary": "Word 是摘要层，不代替 Excel/原始表；定稿前仍应核对失败服务、缺失值、参数、注释版本与全文证据。",
     },
 )
