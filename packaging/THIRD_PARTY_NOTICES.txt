@@ -1,0 +1,56 @@
+My Bio Tools 1.8.0 - Third-Party Notices
+============================================================
+
+This Windows distribution bundles open-source software. Copyright remains
+with the respective authors. Package metadata and license files are retained
+inside the bundled Python and .NET dependency directories where supplied.
+
+Core runtime and application dependencies
+-----------------------------------------
+
+Python 3.12                  Python Software Foundation License
+Streamlit 1.54.0             Apache License 2.0
+pandas 2.3.3                 BSD 3-Clause License
+NumPy                        BSD 3-Clause License
+PyArrow                      Apache License 2.0
+Altair                       BSD 3-Clause License
+PyDeck                       Apache License 2.0
+Biopython 1.86               Biopython License Agreement / BSD-style terms
+primer3-py 2.3.0             GNU General Public License v2.0
+Primer3 core                 GNU General Public License v2.0
+Requests 2.32.5              Apache License 2.0
+Beautiful Soup 4.14.3        MIT License
+python-docx 1.2.0            MIT License
+openpyxl 3.1.5               MIT License
+Matplotlib 3.10.7            PSF-based Matplotlib License
+pybiolib 1.4.274             MIT License
+NLStradamus 1.8              GNU General Public License v3.0 or later
+PyInstaller 6.21.0           GPLv2 with the PyInstaller bootloader exception
+.NET 10 runtime              MIT License
+Microsoft.Web.WebView2       Microsoft software license terms
+
+Project and license locations
+-----------------------------
+
+https://www.python.org/
+https://streamlit.io/
+https://pandas.pydata.org/
+https://numpy.org/
+https://arrow.apache.org/docs/python/
+https://biopython.org/
+https://github.com/libnano/primer3-py
+https://github.com/primer3-org/primer3
+https://requests.readthedocs.io/
+https://www.crummy.com/software/BeautifulSoup/
+https://python-docx.readthedocs.io/
+https://openpyxl.readthedocs.io/
+https://matplotlib.org/
+https://biolib.com/docs/using-applications/python/
+http://www.moseslab.csb.utoronto.ca/NLStradamus/
+https://pyinstaller.org/
+https://github.com/dotnet/runtime
+https://developer.microsoft.com/microsoft-edge/webview2/
+
+The WebView2 Evergreen Standalone Installer is redistributed solely as the
+runtime prerequisite for this WebView2 application and remains signed and
+serviced by Microsoft. This notice is informational and is not legal advice.

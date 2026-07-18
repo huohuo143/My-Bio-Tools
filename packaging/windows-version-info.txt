@@ -1,0 +1,30 @@
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 4, 1, 0),
+    prodvers=(1, 4, 1, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        u'080404B0',
+        [
+          StringStruct(u'CompanyName', u'Wu Lab'),
+          StringStruct(u'FileDescription', u'My Bio Tools local Streamlit backend'),
+          StringStruct(u'FileVersion', u'1.7.2.0'),
+          StringStruct(u'InternalName', u'BioToolsBackend'),
+          StringStruct(u'LegalCopyright', u'Wu Lab team'),
+          StringStruct(u'OriginalFilename', u'BioToolsBackend.exe'),
+          StringStruct(u'ProductName', u'My Bio Tools'),
+          StringStruct(u'ProductVersion', u'1.7.2')
+        ]
+      )
+    ]),
+    VarFileInfo([VarStruct(u'Translation', [2052, 1200])])
+  ]
+)

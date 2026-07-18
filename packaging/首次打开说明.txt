@@ -1,0 +1,22 @@
+My Bio Tools 1.8.0 首次打开说明
+
+适用设备：Apple Silicon Mac（M1 / M2 / M3 / M4 等）
+系统要求：macOS 13 或更高版本
+
+安装方法：
+1. 将“My Bio Tools”拖入右侧的 Applications 文件夹。
+2. 在“应用程序”中打开 My Bio Tools。
+3. 本 App 已内置 Python、Streamlit、Primer3、水稻注释数据和经筛选的实验室多组学数据，
+   无需另外安装 Python、Conda 或第三方依赖。
+
+如果 macOS 首次提示无法验证开发者：
+- 在“应用程序”中右键点击 My Bio Tools，选择“打开”，然后再次确认“打开”。
+- 或前往“系统设置 → 隐私与安全性”，选择“仍要打开”。
+
+注意：“RiceData 信息检索”和“水稻基因一站式分析”的在线序列/预测
+需要联网访问相关公共服务；内置 IRGSP 数据与 NLStradamus 可在本机使用。
+实验室多组学数据库只有在账号登录并通过授权后才会解锁，退出 APP 后会自动清理解锁副本。
+
+软件开发：Wu Lab 团队
+维护：ZhangS
+致谢：GanP

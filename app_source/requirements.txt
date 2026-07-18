@@ -1,0 +1,11 @@
+# 自动生成的依赖文件
+beautifulsoup4
+pandas
+requests
+streamlit
+biopython
+primer3-py
+python-docx
+openpyxl
+matplotlib
+pybiolib==1.4.274

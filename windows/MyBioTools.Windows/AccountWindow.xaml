@@ -1,0 +1,31 @@
+<Window x:Class="MyBioTools.Windows.AccountWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="账号与设备" Width="560" Height="430" MinWidth="480" MinHeight="360"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip" Background="#F7F9FC">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="NameText" FontSize="22" FontWeight="SemiBold" Foreground="#17332E" />
+        <StackPanel Grid.Row="1" Margin="0,5,0,18">
+            <TextBlock x:Name="EmailText" Foreground="#627B76" />
+            <TextBlock x:Name="LicenseText" Foreground="#627B76" Margin="0,4,0,0" />
+        </StackPanel>
+        <GroupBox Grid.Row="2" Header="已绑定设备（最多 2 台）" Padding="10">
+            <ListBox x:Name="DevicesList" DisplayMemberPath="DisplayName" />
+        </GroupBox>
+        <Grid Grid.Row="3" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal">
+                <Button Content="解绑选中设备" Click="UnbindButton_Click" Padding="12,7" />
+                <Button Content="修改密码" Click="ChangePasswordButton_Click" Padding="12,7" Margin="8,0,0,0" />
+                <Button Content="退出登录" Click="LogoutButton_Click" Padding="12,7" Margin="8,0,0,0" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="关闭" IsCancel="True" Padding="18,7" />
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,10 @@
+beautifulsoup4==4.14.3
+biopython==1.86
+pandas==2.3.3
+primer3-py==2.3.0
+requests==2.32.5
+streamlit==1.54.0
+python-docx==1.2.0
+openpyxl==3.1.5
+matplotlib==3.10.7
+pybiolib==1.4.274

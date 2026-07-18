@@ -1,0 +1,4 @@
+{
+  "baseUrl": "https://mybiotools.aizs.top",
+  "publicJwk": "REPLACE_WITH_ED25519_PUBLIC_JWK_JSON"
+}
