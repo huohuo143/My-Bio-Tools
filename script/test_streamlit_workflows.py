@@ -35,8 +35,12 @@ class StreamlitWorkflowTests(unittest.TestCase):
     def open_tool(self, category: str, tool: str) -> AppTest:
         app = AppTest.from_file(str(MAIN_SCRIPT), default_timeout=30)
         app.run()
-        app.sidebar.radio[0].set_value(category).run()
-        app.sidebar.selectbox[0].set_value(tool).run()
+        if tool == "水稻基因一站式分析":
+            app.sidebar.radio[0].set_value("水稻基因一站式分析").run()
+        else:
+            app.sidebar.radio[0].set_value(category).run()
+            if app.sidebar.selectbox:
+                app.sidebar.selectbox[0].set_value(tool).run()
         self.assertFalse(app.exception)
         return app
 
@@ -77,8 +81,9 @@ class StreamlitWorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(len(app.dataframe[0].value), 1)
 
     def test_unified_rice_gene_page_defaults(self) -> None:
-        app = self.open_tool("水稻资源", "水稻基因一站式分析")
+        app = self.open_tool("RiceData 基因信息批量检索", "水稻基因一站式分析")
         self.assert_no_runtime_errors(app)
+        self.assertIn("水稻基因一站式分析", app.sidebar.radio[0].options)
         self.assertEqual(app.radio[0].value, "单基因深度分析")
         self.assertEqual(app.radio[1].value, "RAP/MSU ID")
         self.assertEqual(len(app.multiselect[0].value), 6)
@@ -100,6 +105,35 @@ class StreamlitWorkflowTests(unittest.TestCase):
         )
         self.assertIn("Absolute 不是 fold change", page_text)
         self.assertIn("12 个数据源", page_text)
+
+    def test_codex_model_reasoning_and_speed_controls(self) -> None:
+        app = self.open_tool("RiceData 基因信息批量检索", "水稻基因一站式分析")
+        interpretation = next(item for item in app.radio if item.label == "选择解读方式")
+        interpretation.set_value("大模型增强解读（可选）").run()
+        provider = next(item for item in app.radio if item.label == "大模型来源")
+        provider.set_value("ChatGPT 账号（Codex，免 API Key，推荐）").run()
+        controls = {item.label: item for item in app.selectbox}
+        self.assertIn("Codex 模型", controls)
+        self.assertIn("推理能力", controls)
+        self.assertIn("响应速度", controls)
+        self.assertIn("GPT-5.6 Terra（日常均衡）", controls["Codex 模型"].options)
+        self.assertIn("快速（约 1.5×）", controls["响应速度"].options)
+        self.assertIn("验证 Codex 模型连接", [item.label for item in app.button])
+
+        controls["Codex 模型"].set_value("GPT-5.6 Sol（复杂任务）").run()
+        controls = {item.label: item for item in app.selectbox}
+        self.assertIn("最大", controls["推理能力"].options)
+        controls["Codex 模型"].set_value("GPT-5.2（兼容）").run()
+        controls = {item.label: item for item in app.selectbox}
+        self.assertNotIn("最大", controls["推理能力"].options)
+        self.assertEqual(controls["响应速度"].options, ["标准"])
+        provider = next(item for item in app.radio if item.label == "大模型来源")
+        provider.set_value("本机 Ollama（数据不出本机）").run()
+        self.assertIn("验证 Ollama 连接", [item.label for item in app.button])
+        provider = next(item for item in app.radio if item.label == "大模型来源")
+        provider.set_value("OpenAI 兼容云端 API").run()
+        self.assertIn("验证 API 连接", [item.label for item in app.button])
+        self.assert_no_runtime_errors(app)
 
     def test_background_job_continues_across_tool_navigation(self) -> None:
         gate = threading.Event()
@@ -135,7 +169,7 @@ class StreamlitWorkflowTests(unittest.TestCase):
 
         job_id = JOB_MANAGER.submit(request, runner)
         try:
-            app = self.open_tool("水稻资源", "水稻基因一站式分析")
+            app = self.open_tool("RiceData 基因信息批量检索", "水稻基因一站式分析")
             self.assert_no_runtime_errors(app)
             page_running = next(item for item in JOB_MANAGER.snapshots() if item.job_id == job_id)
             self.assertEqual(len(app.get("progress")), len(page_running.progress_items))

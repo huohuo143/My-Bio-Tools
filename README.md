@@ -4,7 +4,7 @@
 
 当前 macOS 版本：**1.9.1（build 20）**。macOS 目标平台为 Apple Silicon（arm64），最低支持 macOS 13；Windows 源码同步为 1.9.1，目标平台为 Windows 10/11 x64，二进制交付必须在真实 Windows x64 环境完成构建与验收。
 
-v1.9.1 在“大模型增强解读”中新增“ChatGPT 账号（Codex，免 API Key）”：macOS 优先复用新版 ChatGPT App 内置 Codex，Windows 检测用户按 OpenAI 官方方式安装的 Codex CLI。每次任务均需确认把去标识化结构化摘要发送给 OpenAI；调用采用临时只读会话、严格 JSON Schema，并禁用插件、记忆、浏览器、终端、Computer Use 和多代理能力。该模式不创建持久 Codex 任务，不读取项目文件，不自动改用 API；未安装、未登录、额度不足、超时或返回格式异常时保留离线规则解读。使用量计入 ChatGPT/Codex 共享额度。
+v1.9.1 在“大模型增强解读”中新增“ChatGPT 账号（Codex，免 API Key）”：macOS 优先复用新版 ChatGPT App 内置 Codex，Windows 检测用户按 OpenAI 官方方式安装的 Codex CLI。现在可选择自动推荐或 GPT-5.6 Sol/Terra/Luna、GPT-5.5、GPT-5.2，并按模型选择推理档位和标准/快速响应；界面会自动排除模型不支持的组合。快速模式约提升 1.5 倍响应速度，并消耗更多 ChatGPT/Codex 额度。每次任务均需确认把去标识化结构化摘要发送给 OpenAI；调用采用临时只读会话、严格 JSON Schema，并禁用插件、记忆、浏览器、终端、Computer Use 和多代理能力。该模式不创建持久 Codex 任务，不读取项目文件，不自动改用 API；未安装、未登录、额度不足、超时或返回格式异常时保留离线规则解读。使用量计入 ChatGPT/Codex 共享额度。
 
 v1.9.0 新增账号页“一键更新并重启”：登录后检查 Ed25519 签名更新清单，由授权服务从私有 GitHub Release 代取 DMG，客户端不接触 GitHub 凭据；随后校验 SHA-256、文件大小、bundle ID、版本/build、arm64 架构与代码签名完整性，替换前保留可回滚备份。水稻基因一站式分析同时新增“离线科研规则”与“大模型增强”两种可选结果解读，重点解释多组学方向/跨层一致性/PTM 边界和单倍型频率/群体分层/性状关联缺口。解读同步进入网页、Word、Excel 和 ZIP；大模型失败时自动回退到离线规则。
 

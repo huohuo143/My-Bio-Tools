@@ -212,6 +212,26 @@ class CodexChatGPTTests(unittest.TestCase):
             parse_codex_jsonl(json.dumps({"type": "item.completed", "item": {"type": "error", "message": "usage limit exceeded"}}))
         self.assertEqual(context.exception.code, "usage_limit")
 
+    def test_connection_probe_requires_ok_payload(self) -> None:
+        success = CodexRunResult(
+            {
+                "executive_summary": "ok",
+                "multiomics_interpretation": "",
+                "haplotype_interpretation": "",
+                "integrated_hypotheses": [],
+            },
+            "codex-cli fixture",
+        )
+        with patch("codex_chatgpt.run_codex_interpretation", return_value=success):
+            detail = codex_chatgpt.probe_codex_connection(model="gpt-5.6-terra")
+        self.assertIn("GPT-5.6 Terra", detail)
+        self.assertIn("codex-cli fixture", detail)
+
+        invalid = CodexRunResult({"executive_summary": "not-ok"}, "codex-cli fixture")
+        with patch("codex_chatgpt.run_codex_interpretation", return_value=invalid):
+            with self.assertRaises(CodexClientError):
+                codex_chatgpt.probe_codex_connection()
+
     def test_safe_command_returns_strict_payload_without_shell(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary) / "codex.exe"
@@ -235,10 +255,55 @@ class CodexChatGPTTests(unittest.TestCase):
             self.assertIn("--ephemeral", command)
             self.assertIn("--output-schema", command)
             self.assertIn("shell_tool", command)
+            self.assertNotIn("--model", command)
+            self.assertNotIn("model_reasoning_effort", " ".join(command))
+            self.assertNotIn("service_tier", " ".join(command))
             self.assertNotIn("fixture prompt", " ".join(command))
             self.assertEqual(process.inputs, ["fixture prompt"])
             self.assertEqual(result.payload["executive_summary"], "结构化证据支持优先复核。")
             self.assertIn("creationflags", dict(captured["kwargs"]))
+
+    def test_selected_model_reasoning_and_fast_mode_are_forwarded_safely(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            executable = Path(temporary) / "codex.exe"
+            executable.write_text("fixture", encoding="utf-8")
+            process = _FakeProcess(stdout=_jsonl())
+            captured: dict[str, object] = {}
+
+            def popen(command: list[str], **kwargs: object) -> _FakeProcess:
+                captured["command"] = command
+                captured["kwargs"] = kwargs
+                return process
+
+            run_codex_interpretation(
+                "fixture prompt",
+                model="gpt-5.6-terra",
+                reasoning_effort="high",
+                speed="fast",
+                status=self.authenticated_status(str(executable)),
+                system_name="Windows",
+                environ={"USERPROFILE": temporary, "PATH": temporary},
+                popen_factory=popen,
+            )
+            command = list(captured["command"])
+            exec_index = command.index("exec")
+            self.assertLess(command.index("--model"), exec_index)
+            self.assertEqual(command[command.index("--model") + 1], "gpt-5.6-terra")
+            configs = [command[index + 1] for index, value in enumerate(command[:-1]) if value == "--config"]
+            self.assertIn('model_reasoning_effort="high"', configs)
+            self.assertIn("features.fast_mode=true", configs)
+            self.assertIn('service_tier="fast"', configs)
+            self.assertTrue(all(command.index(value) < exec_index for value in configs))
+            self.assertNotIn("fixture prompt", " ".join(command))
+
+    def test_model_specific_reasoning_and_speed_constraints(self) -> None:
+        self.assertIn("max", codex_chatgpt.codex_reasoning_options("gpt-5.6-sol"))
+        self.assertNotIn("max", codex_chatgpt.codex_reasoning_options("gpt-5.5"))
+        self.assertIn("fast", codex_chatgpt.codex_speed_options("gpt-5.5"))
+        self.assertEqual(codex_chatgpt.codex_speed_options("gpt-5.2"), ("standard",))
+        with self.assertRaises(CodexClientError) as context:
+            codex_chatgpt._validate_codex_selection("gpt-5.2", "medium", "fast")
+        self.assertEqual(context.exception.code, "invalid_configuration")
 
     def test_cancel_and_process_errors_are_standardized(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -269,6 +334,7 @@ class CodexChatGPTTests(unittest.TestCase):
 
     def test_report_integration_records_provider_and_redacts_payload(self) -> None:
         captured: list[str] = []
+        captured_options: dict[str, object] = {}
         bundle = self.fixture()
         bundle.inputs = ["private_sample_name"]
         bundle.lab_omics_differential[0].update(
@@ -289,8 +355,9 @@ class CodexChatGPTTests(unittest.TestCase):
             }
         ]
 
-        def fake_run(prompt: str, **_: object) -> CodexRunResult:
+        def fake_run(prompt: str, **options: object) -> CodexRunResult:
             captured.append(prompt)
+            captured_options.update(options)
             return CodexRunResult(_response_payload(), "codex-cli fixture")
 
         with patch("report_interpretation.codex_chatgpt.run_codex_interpretation", side_effect=fake_run):
@@ -298,11 +365,19 @@ class CodexChatGPTTests(unittest.TestCase):
                 bundle,
                 mode=MODE_LLM,
                 provider=PROVIDER_CODEX_CHATGPT,
-                model=CODEX_ACCOUNT_MODEL,
+                model="gpt-5.6-terra",
+                codex_reasoning="high",
+                codex_speed="fast",
             )
         self.assertEqual(status["effective_mode"], MODE_LLM)
         self.assertEqual(status["provider"], PROVIDER_CODEX_CHATGPT)
         self.assertEqual(status["client_version"], "codex-cli fixture")
+        self.assertEqual(status["model"], "gpt-5.6-terra")
+        self.assertEqual(status["reasoning_effort"], "high")
+        self.assertEqual(status["speed"], "fast")
+        self.assertEqual(captured_options["model"], "gpt-5.6-terra")
+        self.assertEqual(captured_options["reasoning_effort"], "high")
+        self.assertEqual(captured_options["speed"], "fast")
         self.assertTrue(any(row["title"].startswith("AI候选假设") for row in rows))
         self.assertNotIn("/secret/raw.xlsx", captured[0])
         self.assertNotIn("private_sample_name", captured[0])

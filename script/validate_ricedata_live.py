@@ -43,7 +43,7 @@ def main() -> int:
 
     app = AppTest.from_file(str(APP_SOURCE / "main.py"), default_timeout=90)
     app.run()
-    app.sidebar.radio[0].set_value("水稻资源").run()
+    app.sidebar.radio[0].set_value("RiceData 基因信息批量检索").run()
     app.sidebar.selectbox[0].set_value("RiceData 信息检索").run()
     app.text_area[0].set_value(QUERY_ID).run()
     app.button[0].click().run(timeout=90)

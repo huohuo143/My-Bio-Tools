@@ -6,12 +6,18 @@ from collections import defaultdict
 import json
 import math
 import re
+import time
 from typing import TYPE_CHECKING, Callable, Iterable
 
 import requests
 
 import codex_chatgpt
-from codex_chatgpt import CODEX_ACCOUNT_MODEL, PROVIDER_CODEX_CHATGPT
+from codex_chatgpt import (
+    CODEX_ACCOUNT_MODEL,
+    CODEX_DEFAULT_REASONING,
+    CODEX_DEFAULT_SPEED,
+    PROVIDER_CODEX_CHATGPT,
+)
 
 if TYPE_CHECKING:
     from rice_gene_core import AnalysisBundle
@@ -22,6 +28,62 @@ MODE_LLM = "llm"
 PROVIDER_OLLAMA = "ollama"
 PROVIDER_OPENAI_COMPATIBLE = "openai_compatible"
 _RICE_IDENTIFIER = re.compile(r"(?:LOC_Os\d{2}g\d{5}(?:\.\d+)?|Os\d{2}[gt]\d{7}(?:-\d+)?)")
+
+
+def probe_model_connection(
+    *,
+    provider: str,
+    base_url: str,
+    model: str,
+    api_key: str = "",
+    session: requests.Session | None = None,
+    timeout: int = 30,
+) -> str:
+    """Verify one configured model endpoint with a fixed, data-free request."""
+    normalized = base_url.strip().rstrip("/")
+    selected_model = model.strip()
+    if not normalized or not selected_model:
+        raise ValueError("请先填写模型服务地址和模型名称。")
+    client = session or requests.Session()
+    started = time.monotonic()
+    if provider == PROVIDER_OLLAMA:
+        url = normalized if normalized.endswith("/api/chat") else normalized + "/api/chat"
+        response = client.post(
+            url,
+            json={
+                "model": selected_model,
+                "stream": False,
+                "messages": [{"role": "user", "content": "Reply with OK."}],
+                "options": {"temperature": 0, "num_predict": 8},
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        content = str(response.json().get("message", {}).get("content") or "").strip()
+    elif provider == PROVIDER_OPENAI_COMPATIBLE:
+        if not api_key.strip():
+            raise ValueError("请先填写 API Key。")
+        url = normalized if normalized.endswith("/chat/completions") else normalized + "/chat/completions"
+        response = client.post(
+            url,
+            headers={"Authorization": f"Bearer {api_key.strip()}", "Content-Type": "application/json"},
+            json={
+                "model": selected_model,
+                "temperature": 0,
+                "max_tokens": 8,
+                "messages": [{"role": "user", "content": "Reply with OK."}],
+            },
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        choices = response.json().get("choices") or []
+        content = str(choices[0].get("message", {}).get("content") if choices else "").strip()
+    else:
+        raise ValueError(f"不支持的大模型提供方：{provider}")
+    if not content:
+        raise ValueError("模型服务已响应，但没有返回内容。")
+    elapsed = time.monotonic() - started
+    return f"{selected_model} · {elapsed:.1f} 秒"
 
 
 def _as_float(value: object) -> float | None:
@@ -556,6 +618,9 @@ def request_codex_chatgpt_interpretations(
     bundle: "AnalysisBundle",
     rule_rows: list[dict[str, object]],
     *,
+    model: str = CODEX_ACCOUNT_MODEL,
+    reasoning_effort: str = CODEX_DEFAULT_REASONING,
+    speed: str = CODEX_DEFAULT_SPEED,
     is_cancelled: Callable[[], bool] | None = None,
     timeout: int = codex_chatgpt.CODEX_TIMEOUT_SECONDS,
 ) -> tuple[list[dict[str, object]], codex_chatgpt.CodexRunResult]:
@@ -563,6 +628,9 @@ def request_codex_chatgpt_interpretations(
     system, prompt = _llm_prompt(bundle, rule_rows)
     result = codex_chatgpt.run_codex_interpretation(
         f"{system}\n\n{prompt}",
+        model=model,
+        reasoning_effort=reasoning_effort,
+        speed=speed,
         timeout=timeout,
         is_cancelled=is_cancelled,
     )
@@ -580,16 +648,24 @@ def generate_interpretations(
     base_url: str = "",
     model: str = "",
     api_key: str = "",
+    codex_reasoning: str = CODEX_DEFAULT_REASONING,
+    codex_speed: str = CODEX_DEFAULT_SPEED,
     session: requests.Session | None = None,
     is_cancelled: Callable[[], bool] | None = None,
 ) -> tuple[list[dict[str, object]], dict[str, object]]:
     rules = build_rule_interpretations(bundle)
+    selected_codex_model = model or CODEX_ACCOUNT_MODEL
     status: dict[str, object] = {
         "requested_mode": mode,
         "effective_mode": MODE_RULES,
         "provider": provider if mode == MODE_LLM else "",
         "provider_label": "",
-        "model": CODEX_ACCOUNT_MODEL if mode == MODE_LLM and provider == PROVIDER_CODEX_CHATGPT else (model if mode == MODE_LLM else ""),
+        "model": selected_codex_model if mode == MODE_LLM and provider == PROVIDER_CODEX_CHATGPT else (model if mode == MODE_LLM else ""),
+        "model_label": codex_chatgpt.codex_model_label(selected_codex_model) if mode == MODE_LLM and provider == PROVIDER_CODEX_CHATGPT else "",
+        "reasoning_effort": codex_reasoning if mode == MODE_LLM and provider == PROVIDER_CODEX_CHATGPT else "",
+        "reasoning_label": codex_chatgpt.codex_reasoning_label(codex_reasoning) if mode == MODE_LLM and provider == PROVIDER_CODEX_CHATGPT else "",
+        "speed": codex_speed if mode == MODE_LLM and provider == PROVIDER_CODEX_CHATGPT else "",
+        "speed_label": codex_chatgpt.codex_speed_label(codex_speed) if mode == MODE_LLM and provider == PROVIDER_CODEX_CHATGPT else "",
         "client_version": "",
         "rule_section_count": len(rules),
         "ai_section_count": 0,
@@ -608,6 +684,9 @@ def generate_interpretations(
             ai_rows, result = request_codex_chatgpt_interpretations(
                 bundle,
                 rules,
+                model=selected_codex_model,
+                reasoning_effort=codex_reasoning,
+                speed=codex_speed,
                 is_cancelled=is_cancelled,
             )
             status["provider_label"] = "ChatGPT 账号（Codex）"

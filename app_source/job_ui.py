@@ -33,7 +33,7 @@ def render_progress_breakdown(items: tuple[ProgressItemSnapshot, ...]) -> None:
 
 
 def _open_job(job_id: str) -> None:
-    st.session_state.navigation_category = "水稻资源"
+    st.session_state.navigation_category = "水稻基因一站式分析"
     st.session_state.navigation_tool = "水稻基因一站式分析"
     st.session_state.selected_rice_job_id = job_id
 

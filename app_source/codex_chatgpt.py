@@ -17,7 +17,41 @@ from typing import Callable, Mapping, Sequence
 
 PROVIDER_CODEX_CHATGPT = "codex_chatgpt"
 CODEX_ACCOUNT_MODEL = "account_default"
+CODEX_DEFAULT_REASONING = "model_default"
+CODEX_DEFAULT_SPEED = "standard"
+CODEX_FAST_SPEED = "fast"
 CODEX_TIMEOUT_SECONDS = 240
+
+CODEX_MODEL_OPTIONS: tuple[tuple[str, str], ...] = (
+    (CODEX_ACCOUNT_MODEL, "自动选择（跟随当前账号）"),
+    ("gpt-5.6-sol", "GPT-5.6 Sol（复杂任务）"),
+    ("gpt-5.6-terra", "GPT-5.6 Terra（日常均衡）"),
+    ("gpt-5.6-luna", "GPT-5.6 Luna（快速明确任务）"),
+    ("gpt-5.5", "GPT-5.5（兼容）"),
+    ("gpt-5.2", "GPT-5.2（兼容）"),
+)
+CODEX_MODEL_LABELS = dict(CODEX_MODEL_OPTIONS)
+CODEX_REASONING_LABELS = {
+    CODEX_DEFAULT_REASONING: "模型默认（推荐）",
+    "low": "低（更快）",
+    "medium": "中（均衡）",
+    "high": "高（复杂任务）",
+    "xhigh": "超高",
+    "max": "最大",
+}
+CODEX_SPEED_LABELS = {
+    CODEX_DEFAULT_SPEED: "标准",
+    CODEX_FAST_SPEED: "快速（约 1.5×）",
+}
+_BASE_REASONING_OPTIONS = (CODEX_DEFAULT_REASONING, "low", "medium", "high", "xhigh")
+_MAX_REASONING_MODELS = {"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+_FAST_MODELS = {
+    CODEX_ACCOUNT_MODEL,
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.5",
+}
 
 _DISABLED_FEATURES = (
     "plugins",
@@ -42,7 +76,7 @@ _REQUIRED_EXEC_FLAGS = (
     "--output-schema",
     "--json",
 )
-_REQUIRED_GLOBAL_FLAGS = ("--ask-for-approval", "--disable")
+_REQUIRED_GLOBAL_FLAGS = ("--ask-for-approval", "--disable", "--model", "--config")
 
 CODEX_RESPONSE_SCHEMA: dict[str, object] = {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -116,6 +150,63 @@ class CodexClientError(RuntimeError):
 class CodexInvocationCancelled(CodexClientError):
     def __init__(self) -> None:
         super().__init__("cancelled", "ChatGPT/Codex 解读已取消。")
+
+
+def probe_codex_connection(
+    *,
+    model: str = CODEX_ACCOUNT_MODEL,
+    reasoning_effort: str = CODEX_DEFAULT_REASONING,
+    speed: str = CODEX_DEFAULT_SPEED,
+    timeout: int = 90,
+) -> str:
+    """Run a minimal real model turn so the selected Codex route is genuinely verified."""
+    result = run_codex_interpretation(
+        (
+            "这是 My Bio Tools 的连接性测试，不包含科研数据。请仅返回符合输出结构的最小 JSON："
+            "executive_summary 写 ok，multiomics_interpretation 与 haplotype_interpretation 留空字符串，"
+            "integrated_hypotheses 返回空数组。"
+        ),
+        model=model,
+        reasoning_effort=reasoning_effort,
+        speed=speed,
+        timeout=timeout,
+    )
+    if str(result.payload.get("executive_summary") or "").strip().casefold() != "ok":
+        raise CodexClientError("invalid_output", "Codex 模型已响应，但连接测试返回格式不正确。")
+    return f"{codex_model_label(model)} · {result.client_version}"
+
+
+def codex_model_label(model: str) -> str:
+    return CODEX_MODEL_LABELS.get(model, model)
+
+
+def codex_reasoning_label(reasoning_effort: str) -> str:
+    return CODEX_REASONING_LABELS.get(reasoning_effort, reasoning_effort)
+
+
+def codex_speed_label(speed: str) -> str:
+    return CODEX_SPEED_LABELS.get(speed, speed)
+
+
+def codex_reasoning_options(model: str) -> tuple[str, ...]:
+    if model in _MAX_REASONING_MODELS:
+        return (*_BASE_REASONING_OPTIONS, "max")
+    return _BASE_REASONING_OPTIONS
+
+
+def codex_speed_options(model: str) -> tuple[str, ...]:
+    if model in _FAST_MODELS:
+        return (CODEX_DEFAULT_SPEED, CODEX_FAST_SPEED)
+    return (CODEX_DEFAULT_SPEED,)
+
+
+def _validate_codex_selection(model: str, reasoning_effort: str, speed: str) -> None:
+    if model not in CODEX_MODEL_LABELS:
+        raise CodexClientError("invalid_configuration", "所选 Codex 模型不受当前版本支持，请重新选择。")
+    if reasoning_effort not in codex_reasoning_options(model):
+        raise CodexClientError("invalid_configuration", "所选模型不支持该推理档位，请重新选择。")
+    if speed not in codex_speed_options(model):
+        raise CodexClientError("invalid_configuration", "所选模型不支持快速模式，请改用标准速度。")
 
 
 def codex_install_guidance(system_name: str | None = None) -> str:
@@ -404,6 +495,9 @@ def _communicate_with_cancel(
 def run_codex_interpretation(
     prompt: str,
     *,
+    model: str = CODEX_ACCOUNT_MODEL,
+    reasoning_effort: str = CODEX_DEFAULT_REASONING,
+    speed: str = CODEX_DEFAULT_SPEED,
     status: CodexClientStatus | None = None,
     timeout: int = CODEX_TIMEOUT_SECONDS,
     is_cancelled: Callable[[], bool] | None = None,
@@ -412,6 +506,7 @@ def run_codex_interpretation(
     popen_factory: Callable[..., subprocess.Popen[str]] = subprocess.Popen,
 ) -> CodexRunResult:
     """Run one ephemeral, tool-disabled Codex turn and return strict JSON."""
+    _validate_codex_selection(model, reasoning_effort, speed)
     current_system = system_name or platform.system()
     client = status or detect_codex_client(system_name=current_system, environ=environ)
     if not client.available:
@@ -439,6 +534,13 @@ def run_codex_interpretation(
         command = [str(client.executable), "--ask-for-approval", "never"]
         for feature in _DISABLED_FEATURES:
             command.extend(["--disable", feature])
+        if model != CODEX_ACCOUNT_MODEL:
+            command.extend(["--model", model])
+        if reasoning_effort != CODEX_DEFAULT_REASONING:
+            command.extend(["--config", f'model_reasoning_effort="{reasoning_effort}"'])
+        if speed == CODEX_FAST_SPEED:
+            command.extend(["--config", "features.fast_mode=true"])
+            command.extend(["--config", 'service_tier="fast"'])
         command.extend(
             [
                 "exec",
@@ -501,13 +603,24 @@ def run_codex_interpretation(
 
 __all__ = [
     "CODEX_ACCOUNT_MODEL",
+    "CODEX_DEFAULT_REASONING",
+    "CODEX_DEFAULT_SPEED",
+    "CODEX_FAST_SPEED",
+    "CODEX_MODEL_OPTIONS",
+    "CODEX_REASONING_LABELS",
     "CODEX_RESPONSE_SCHEMA",
+    "CODEX_SPEED_LABELS",
     "CodexClientError",
     "CodexClientStatus",
     "CodexInvocationCancelled",
     "CodexRunResult",
     "PROVIDER_CODEX_CHATGPT",
     "codex_install_guidance",
+    "codex_model_label",
+    "codex_reasoning_label",
+    "codex_reasoning_options",
+    "codex_speed_label",
+    "codex_speed_options",
     "detect_codex_client",
     "parse_codex_jsonl",
     "run_codex_interpretation",

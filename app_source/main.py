@@ -11,6 +11,9 @@ from app_ui import APP_VERSION, apply_app_style, render_sidebar_brand
 from job_ui import render_sidebar_job_center
 from tool_catalog import TOOL_GROUPS, functional_tools
 
+DIRECT_RICE_WORKSPACE = "水稻基因一站式分析"
+RICEDATA_WORKSPACE = "RiceData 基因信息批量检索"
+
 
 @lru_cache(maxsize=None)
 def load_tool_module(module_name: str):
@@ -33,12 +36,26 @@ def main() -> None:
     apply_app_style()
     render_sidebar_brand()
 
-    categories = list(TOOL_GROUPS)
+    categories = ["概览", DIRECT_RICE_WORKSPACE, "生信小工具", RICEDATA_WORKSPACE]
     category = st.sidebar.radio("工作区", categories, key="navigation_category")
-    definitions = TOOL_GROUPS[category]
-    tool_names = [tool.name for tool in definitions]
-    selected_name = st.sidebar.selectbox("选择工具", tool_names, key="navigation_tool")
-    selected = next(tool for tool in definitions if tool.name == selected_name)
+    if category == DIRECT_RICE_WORKSPACE:
+        selected = next(
+            tool for tool in TOOL_GROUPS[RICEDATA_WORKSPACE] if tool.name == DIRECT_RICE_WORKSPACE
+        )
+        st.session_state.navigation_tool = selected.name
+    else:
+        definitions = [
+            tool for tool in TOOL_GROUPS[category] if tool.name != DIRECT_RICE_WORKSPACE
+        ]
+        tool_names = [tool.name for tool in definitions]
+        if len(definitions) == 1:
+            selected = definitions[0]
+            st.session_state.navigation_tool = selected.name
+        else:
+            if st.session_state.get("navigation_tool") not in tool_names:
+                st.session_state.navigation_tool = tool_names[0]
+            selected_name = st.sidebar.selectbox("选择工具", tool_names, key="navigation_tool")
+            selected = next(tool for tool in definitions if tool.name == selected_name)
 
     st.sidebar.caption(selected.description)
     if selected.website_url:

@@ -20,8 +20,10 @@ from report_builder import build_report_artifacts  # noqa: E402
 from report_interpretation import (  # noqa: E402
     MODE_LLM,
     PROVIDER_OLLAMA,
+    PROVIDER_OPENAI_COMPATIBLE,
     build_rule_interpretations,
     generate_interpretations,
+    probe_model_connection,
 )
 from rice_gene_core import AnalysisBundle  # noqa: E402
 
@@ -51,6 +53,29 @@ class _Session:
 
 
 class ReportInterpretationTests(unittest.TestCase):
+    def test_model_connection_probes_ollama_and_compatible_api(self) -> None:
+        ollama = _Session({"message": {"content": "OK"}})
+        detail = probe_model_connection(
+            provider=PROVIDER_OLLAMA,
+            base_url="http://127.0.0.1:11434",
+            model="qwen-fixture",
+            session=ollama,
+        )
+        self.assertIn("qwen-fixture", detail)
+        self.assertTrue(ollama.calls[0][0].endswith("/api/chat"))
+
+        cloud = _Session({"choices": [{"message": {"content": "OK"}}]})
+        detail = probe_model_connection(
+            provider=PROVIDER_OPENAI_COMPATIBLE,
+            base_url="https://api.example.test/v1",
+            model="cloud-fixture",
+            api_key="secret-test-key",
+            session=cloud,
+        )
+        self.assertIn("cloud-fixture", detail)
+        self.assertTrue(cloud.calls[0][0].endswith("/chat/completions"))
+        self.assertEqual(cloud.calls[0][1]["headers"]["Authorization"], "Bearer secret-test-key")
+
     def fixture(self) -> AnalysisBundle:
         bundle = AnalysisBundle(
             mode="单基因深度分析",

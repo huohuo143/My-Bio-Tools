@@ -94,6 +94,8 @@ class RiceGeneAnalysisRequest:
     interpretation_base_url: str = ""
     interpretation_model: str = ""
     interpretation_api_key: str = field(default="", repr=False, compare=False)
+    interpretation_codex_reasoning: str = "model_default"
+    interpretation_codex_speed: str = "standard"
 
 
 @dataclass(frozen=True)
