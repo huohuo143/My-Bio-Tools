@@ -8,6 +8,23 @@ DIST_DIR="${DIST_DIR_OVERRIDE:-$ROOT_DIR/dist}"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 BACKEND_DIR="${BACKEND_DIR_OVERRIDE:-$ROOT_DIR/build/backend/BioToolsBackend}"
 ENCRYPTED_OMICS="$ROOT_DIR/app_source/data/lab_omics/wulab_omics_v1.sqlite.zlib.aesctr"
+PACKAGING_PLIST="$ROOT_DIR/packaging/Info.plist"
+LICENSE_PUBLIC_JWK="${MY_BIO_TOOLS_LICENSE_PUBLIC_JWK:-$(plutil -extract MyBioToolsLicensePublicJWK raw "$PACKAGING_PLIST" 2>/dev/null || true)}"
+
+if [[ -z "$LICENSE_PUBLIC_JWK" ]]; then
+  echo "缺少 MY_BIO_TOOLS_LICENSE_PUBLIC_JWK，且 packaging/Info.plist 未配置授权公钥；拒绝生成无法登录的 App。" >&2
+  exit 1
+fi
+if ! LICENSE_PUBLIC_JWK="$LICENSE_PUBLIC_JWK" node --input-type=module <<'NODE'
+const jwk = JSON.parse(process.env.LICENSE_PUBLIC_JWK);
+if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519" || typeof jwk.x !== "string" || !jwk.x) {
+  process.exit(1);
+}
+NODE
+then
+  echo "授权公钥不是有效的 Ed25519 JWK；拒绝生成 App。" >&2
+  exit 1
+fi
 
 if [[ ! -r "$ENCRYPTED_OMICS" ]]; then
   echo "缺少加密多组学数据库：$ENCRYPTED_OMICS" >&2
@@ -46,10 +63,8 @@ RESOURCES_DIR="$CONTENTS/Resources"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 ditto "$SWIFT_BINARY" "$MACOS_DIR/$APP_NAME"
 chmod +x "$MACOS_DIR/$APP_NAME"
-ditto "$ROOT_DIR/packaging/Info.plist" "$CONTENTS/Info.plist"
-if [[ -n "${MY_BIO_TOOLS_LICENSE_PUBLIC_JWK:-}" ]]; then
-  plutil -replace MyBioToolsLicensePublicJWK -string "$MY_BIO_TOOLS_LICENSE_PUBLIC_JWK" "$CONTENTS/Info.plist"
-fi
+ditto "$PACKAGING_PLIST" "$CONTENTS/Info.plist"
+plutil -replace MyBioToolsLicensePublicJWK -string "$LICENSE_PUBLIC_JWK" "$CONTENTS/Info.plist"
 ditto "$ROOT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 ditto "$BACKEND_DIR" "$RESOURCES_DIR/backend"
 ditto "$ROOT_DIR/app_source" "$RESOURCES_DIR/app_source"

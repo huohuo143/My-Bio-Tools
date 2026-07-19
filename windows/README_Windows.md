@@ -39,7 +39,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1
 codex
 ```
 
-在 Codex 中选择 `Sign in with ChatGPT`，完成后重启 My Bio Tools。APP 只检测 `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe` 和 PATH，不负责安装、升级或保存认证信息。每次发送去标识化摘要前都需要重新勾选确认；调用失败会自动保留离线科研规则解读，不会自动改用 API。
+在 Codex 中选择 `Sign in with ChatGPT`，完成后重启 My Bio Tools。APP 只检测 `%LOCALAPPDATA%\Programs\OpenAI\Codex\bin\codex.exe` 和 PATH，不负责安装、升级或保存认证信息。解读界面可选择 Codex 模型、模型支持的推理档位，以及标准/快速响应；快速模式约提升 1.5 倍响应速度并消耗更多额度。每次发送去标识化摘要前都需要重新勾选确认；调用失败会自动保留离线科研规则解读，不会自动改用 API。
 
 同时执行 RiceData、RGAP 与 UTR/启动子在线验证：
 

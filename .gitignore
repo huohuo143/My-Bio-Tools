@@ -18,6 +18,7 @@ dist-dev/
 backup/
 output/
 analysis_results/
+app_source/data/lab_omics/
 Resources/icon-archive/
 app_source/__pycache__/
 app_source/**/*.pyc

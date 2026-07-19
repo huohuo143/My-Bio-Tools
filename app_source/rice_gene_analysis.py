@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import html
+import hashlib
 import re
 
 import pandas as pd
@@ -21,8 +22,18 @@ from app_ui import format_bytes, page_header, tool_website
 from analysis_jobs import JOB_MANAGER, ProgressReporter, RiceGeneAnalysisRequest
 from codex_chatgpt import (
     CODEX_ACCOUNT_MODEL,
+    CODEX_DEFAULT_REASONING,
+    CODEX_DEFAULT_SPEED,
+    CODEX_FAST_SPEED,
+    CODEX_MODEL_OPTIONS,
     CodexInvocationCancelled,
+    codex_model_label,
+    codex_reasoning_label,
+    codex_reasoning_options,
+    codex_speed_label,
+    codex_speed_options,
     detect_codex_client,
+    probe_codex_connection,
 )
 from job_ui import STATUS_LABELS, render_progress_breakdown
 from prediction_services import PREDICTORS, TOOL_URLS, run_selected_predictions
@@ -39,6 +50,7 @@ from report_interpretation import (
     PROVIDER_OLLAMA,
     PROVIDER_OPENAI_COMPATIBLE,
     generate_interpretations,
+    probe_model_connection,
 )
 from protein_domain_analysis import analyze_protein_domains, build_domain_artifacts, MATCHES_API, INTERPRO_URL
 from gene_structure_analysis import fetch_gene_models, build_gene_structure_artifacts, ENSEMBL_REST_URL
@@ -135,6 +147,38 @@ SOURCES = [
 @st.cache_data(ttl=30, show_spinner=False)
 def _cached_codex_client_status() -> dict[str, object]:
     return detect_codex_client().public_dict()
+
+
+def _connection_fingerprint(
+    provider: str,
+    base_url: str,
+    model: str,
+    api_key: str = "",
+    reasoning: str = "",
+    speed: str = "",
+) -> str:
+    key_digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest() if api_key else ""
+    return "|".join((provider, base_url.strip(), model.strip(), key_digest, reasoning, speed))
+
+
+def _remember_connection_result(fingerprint: str, ok: bool, message: str) -> None:
+    st.session_state.rice_model_connection_result = {
+        "fingerprint": fingerprint,
+        "ok": ok,
+        "message": message,
+    }
+
+
+def _render_connection_result(fingerprint: str) -> bool:
+    result = st.session_state.get("rice_model_connection_result", {})
+    if result.get("fingerprint") != fingerprint:
+        st.info("尚未验证当前模型配置。")
+        return False
+    if result.get("ok"):
+        st.success(f"连接通畅 · {result.get('message', '')}", icon="✅")
+        return True
+    st.error(f"连接失败 · {result.get('message', '')}", icon="❌")
+    return False
 
 
 def _efp_glossary_rows() -> list[dict[str, str]]:
@@ -932,6 +976,8 @@ def execute_analysis_request(
         "interpretation_provider": request.interpretation_provider,
         "interpretation_base_url": request.interpretation_base_url,
         "interpretation_model": request.interpretation_model,
+        "interpretation_codex_reasoning": request.interpretation_codex_reasoning,
+        "interpretation_codex_speed": request.interpretation_codex_speed,
     }
 
     if request.include_ricedata:
@@ -1265,6 +1311,8 @@ def execute_analysis_request(
             base_url=request.interpretation_base_url,
             model=request.interpretation_model,
             api_key=request.interpretation_api_key,
+            codex_reasoning=request.interpretation_codex_reasoning,
+            codex_speed=request.interpretation_codex_speed,
             is_cancelled=reporter.is_cancelled,
         )
     except CodexInvocationCancelled:
@@ -1705,7 +1753,16 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
         effective = "大模型增强 + 离线规则" if status.get("effective_mode") == MODE_LLM else "离线科研规则"
         provider = str(status.get("provider_label") or "")
         client_version = str(status.get("client_version") or "")
-        provider_detail = " · ".join(value for value in (provider, client_version) if value)
+        codex_details: tuple[str, ...] = ()
+        if status.get("provider") == PROVIDER_CODEX_CHATGPT:
+            codex_details = tuple(
+                value for value in (
+                    str(status.get("model_label") or ""),
+                    f"推理：{status.get('reasoning_label')}" if status.get("reasoning_label") else "",
+                    f"速度：{status.get('speed_label')}" if status.get("speed_label") else "",
+                ) if value
+            )
+        provider_detail = " · ".join(value for value in (provider, client_version, *codex_details) if value)
         st.caption(
             f"本次解读模式：{effective}"
             + (f"（{provider_detail}）" if provider_detail else "")
@@ -1940,6 +1997,8 @@ def run() -> None:
     interpretation_base_url = ""
     interpretation_model = ""
     interpretation_api_key = ""
+    interpretation_codex_reasoning = CODEX_DEFAULT_REASONING
+    interpretation_codex_speed = CODEX_DEFAULT_SPEED
     interpretation_cloud_consent = True
     interpretation_codex_ready = True
     interpretation_consent_nonce = int(st.session_state.get("rice_interpretation_consent_nonce", 0))
@@ -1955,16 +2014,75 @@ def run() -> None:
         )
         if provider_label.startswith("ChatGPT"):
             interpretation_provider = PROVIDER_CODEX_CHATGPT
-            interpretation_model = CODEX_ACCOUNT_MODEL
+            codex_model_values = tuple(value for value, _label in CODEX_MODEL_OPTIONS)
+            model_state_key = "rice_codex_model"
+            if st.session_state.get(model_state_key, CODEX_ACCOUNT_MODEL) not in codex_model_values:
+                st.session_state[model_state_key] = CODEX_ACCOUNT_MODEL
+            model_col, reasoning_col, speed_col = st.columns(3)
+            with model_col:
+                interpretation_model = st.selectbox(
+                    "Codex 模型",
+                    codex_model_values,
+                    format_func=codex_model_label,
+                    key=model_state_key,
+                    help="自动选择会跟随当前 ChatGPT/Codex 账号的默认模型。",
+                )
+            reasoning_values = codex_reasoning_options(interpretation_model)
+            reasoning_state_key = "rice_codex_reasoning"
+            if st.session_state.get(reasoning_state_key, CODEX_DEFAULT_REASONING) not in reasoning_values:
+                st.session_state[reasoning_state_key] = CODEX_DEFAULT_REASONING
+            with reasoning_col:
+                interpretation_codex_reasoning = st.selectbox(
+                    "推理能力",
+                    reasoning_values,
+                    format_func=codex_reasoning_label,
+                    key=reasoning_state_key,
+                    help="档位越高，复杂推断通常越充分，但耗时与额度消耗也可能增加。",
+                )
+            speed_values = codex_speed_options(interpretation_model)
+            speed_state_key = "rice_codex_speed"
+            if st.session_state.get(speed_state_key, CODEX_DEFAULT_SPEED) not in speed_values:
+                st.session_state[speed_state_key] = CODEX_DEFAULT_SPEED
+            with speed_col:
+                interpretation_codex_speed = st.selectbox(
+                    "响应速度",
+                    speed_values,
+                    format_func=codex_speed_label,
+                    key=speed_state_key,
+                    help="快速模式约提升 1.5 倍响应速度，并会消耗更多 ChatGPT/Codex 额度。",
+                )
+            if interpretation_codex_speed == CODEX_FAST_SPEED:
+                st.info("已选择快速模式：响应约快 1.5 倍，但会消耗更多 ChatGPT/Codex 额度。")
             codex_status = _cached_codex_client_status()
-            interpretation_codex_ready = bool(codex_status.get("authenticated"))
-            if interpretation_codex_ready:
-                st.success(str(codex_status.get("message") or "已检测到可用的 ChatGPT/Codex 登录。"))
-            else:
-                st.warning(str(codex_status.get("message") or "ChatGPT/Codex 当前不可用。"))
-            if st.button("刷新 ChatGPT/Codex 状态", key="refresh_rice_codex_status"):
+            account_ready = bool(codex_status.get("authenticated"))
+            st.caption(str(codex_status.get("message") or "尚未检测到可用的 ChatGPT/Codex 登录。"))
+            codex_fingerprint = _connection_fingerprint(
+                interpretation_provider,
+                "chatgpt-account",
+                interpretation_model,
+                reasoning=interpretation_codex_reasoning,
+                speed=interpretation_codex_speed,
+            )
+            if st.button(
+                "验证 Codex 模型连接",
+                key="verify_rice_codex_connection",
+                disabled=not account_ready,
+                use_container_width=True,
+            ):
                 _cached_codex_client_status.clear()
-                st.rerun()
+                with st.spinner("正在验证所选 Codex 模型…"):
+                    try:
+                        detail = probe_codex_connection(
+                            model=interpretation_model,
+                            reasoning_effort=interpretation_codex_reasoning,
+                            speed=interpretation_codex_speed,
+                        )
+                        _remember_connection_result(codex_fingerprint, True, detail)
+                    except Exception as exc:
+                        _remember_connection_result(codex_fingerprint, False, str(exc))
+            _render_connection_result(codex_fingerprint)
+            interpretation_codex_ready = account_ready
+            st.caption("验证会发送一条不含科研数据的最小测试消息，并消耗少量 ChatGPT/Codex 额度。")
             interpretation_cloud_consent = st.checkbox(
                 "我同意将去标识化的结构化摘要通过当前 ChatGPT 账号发送给 OpenAI，并消耗 ChatGPT/Codex 使用额度",
                 value=False,
@@ -1987,6 +2105,28 @@ def run() -> None:
                 value=False,
                 key=f"rice_api_consent_{interpretation_consent_nonce}",
             )
+        if interpretation_provider in {PROVIDER_OLLAMA, PROVIDER_OPENAI_COMPATIBLE}:
+            api_fingerprint = _connection_fingerprint(
+                interpretation_provider,
+                interpretation_base_url,
+                interpretation_model,
+                interpretation_api_key,
+            )
+            verify_label = "验证 Ollama 连接" if interpretation_provider == PROVIDER_OLLAMA else "验证 API 连接"
+            if st.button(verify_label, key=f"verify_rice_{interpretation_provider}_connection", use_container_width=True):
+                with st.spinner("正在发送最小连接测试…"):
+                    try:
+                        detail = probe_model_connection(
+                            provider=interpretation_provider,
+                            base_url=interpretation_base_url,
+                            model=interpretation_model,
+                            api_key=interpretation_api_key,
+                        )
+                        _remember_connection_result(api_fingerprint, True, detail)
+                    except Exception as exc:
+                        _remember_connection_result(api_fingerprint, False, str(exc))
+            _render_connection_result(api_fingerprint)
+            st.caption("验证只发送固定文本 Reply with OK，不包含科研数据。")
         st.caption("只发送结构化统计摘要；不发送原始序列、样本名、密码、令牌、密钥和源文件路径。")
     project_name = st.text_input(
         "项目名称（可选）",
@@ -2086,6 +2226,8 @@ def run() -> None:
                 interpretation_base_url=interpretation_base_url.strip(),
                 interpretation_model=interpretation_model.strip(),
                 interpretation_api_key=interpretation_api_key.strip(),
+                interpretation_codex_reasoning=interpretation_codex_reasoning,
+                interpretation_codex_speed=interpretation_codex_speed,
             )
             job_id = JOB_MANAGER.submit(request, execute_analysis_request)
             if interpretation_provider in {PROVIDER_CODEX_CHATGPT, PROVIDER_OPENAI_COMPATIBLE}:

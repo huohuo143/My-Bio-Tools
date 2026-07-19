@@ -44,7 +44,7 @@ TOOL_GROUPS: dict[str, list[ToolDefinition]] = {
         ToolDefinition("FASTA ID 重命名", "fasta_rename", "✎", "根据两列对应表批量替换 FASTA 序列 ID，并报告未匹配项", "读取 old ID–new ID 两列表，仅替换 FASTA 标题首个 ID，并原样保留其后的描述", "新 FASTA、成功/未匹配统计、无效行与重复映射警告", inputs="FASTA/FA/FNA/FAA/TXT 或 GZ 文件，加两列 TXT/TSV/CSV 对应表", cautions="对应表中的重复旧 ID 使用最后一次映射；未匹配记录会保留原 ID，不会被删除，下载前应先复核警告。"),
         ToolDefinition("RAP ↔ MSU ID 转换", "RAP_MSU_convert", "⇄", "在 RAP 与 MSU 两套水稻基因 ID 之间转换，并保留一对多映射", "识别混合 RAP/MSU 输入并查询内置 IRGSP-1.0 对照表；MSU 模型版本后缀单独记录", "input、input_type、converted、mapping_count、status、note 与 CSV；一对多关系不丢失", inputs="RAP gene ID 或 MSU locus/model ID，可换行、空格、逗号或分号混合输入", cautions="ID 转换表示注释体系映射，不等同于功能同源推断；Unknown 与 Unmapped 不会被强制猜测，一对多结果需结合转录本版本复核。"),
     ],
-    "水稻资源": [
+    "RiceData 基因信息批量检索": [
         ToolDefinition(
             "RiceData 信息检索",
             "RiceData_crawler",

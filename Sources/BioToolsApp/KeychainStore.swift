@@ -26,7 +26,7 @@ struct KeychainStore: Sendable {
     func data(for account: String, interactionAllowed: Bool = true) throws -> Data? {
         let context = LAContext()
         context.interactionNotAllowed = !interactionAllowed
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
@@ -34,6 +34,9 @@ struct KeychainStore: Sendable {
             kSecMatchLimit as String: kSecMatchLimitOne,
             kSecUseAuthenticationContext as String: context,
         ]
+        if !interactionAllowed {
+            query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+        }
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }

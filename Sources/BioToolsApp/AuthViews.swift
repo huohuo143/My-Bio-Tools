@@ -97,6 +97,14 @@ struct AuthGateView: View {
                     .textContentType(.password)
                 if mode == .register {
                     SecureField("确认密码", text: $confirmation).textFieldStyle(.roundedBorder)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("管理员联系方式").font(.callout.weight(.semibold))
+                        Text("QQ：289614391").textSelection(.enabled)
+                        Link("邮箱：289614391@qq.com", destination: URL(string: "mailto:289614391@qq.com")!)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if mode == .login {
                     Toggle("记住账号和密码", isOn: $rememberCredentials)
@@ -110,7 +118,7 @@ struct AuthGateView: View {
                 if let notice = auth.notice {
                     Text(notice).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                Button(mode == .login ? "登录" : "提交注册申请") {
+                Button {
                     Task {
                         if mode == .login {
                             await auth.login(
@@ -129,9 +137,15 @@ struct AuthGateView: View {
                             confirmation = ""
                         }
                     }
+                } label: {
+                    HStack(spacing: 8) {
+                        if auth.isBusy { ProgressView().controlSize(.small) }
+                        Text(auth.isBusy ? (mode == .login ? "正在登录…" : "正在提交…") : (mode == .login ? "登录" : "提交注册申请"))
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .keyboardShortcut(.defaultAction)
                 .disabled(auth.isBusy || email.isEmpty || password.isEmpty || (mode == .register && (realName.isEmpty || password != confirmation)))
 
                 if mode == .login {
@@ -139,7 +153,6 @@ struct AuthGateView: View {
                         .buttonStyle(.link)
                         .disabled(email.isEmpty || auth.isBusy)
                 }
-                if auth.isBusy { ProgressView().controlSize(.small) }
             }
             .padding(36)
             .frame(width: 400)

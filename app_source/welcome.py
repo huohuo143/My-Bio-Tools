@@ -58,7 +58,7 @@ def run() -> None:
     col1, col2, col3 = st.columns(3)
     tools = functional_tools()
     online_count = sum(tool.requires_internet for tool in tools)
-    col1.metric("功能模块", str(len(tools)), "2 个工作区")
+    col1.metric("功能模块", str(len(tools)), "3 个工作区")
     col2.metric("内置水稻数据", "4 套", "RAP-DB / IRGSP")
     col3.metric("联网模块", str(online_count), "均标明来源网址")
 
@@ -72,8 +72,13 @@ def run() -> None:
           </div>
           <div class="bio-card">
             <div class="bio-card-icon">♧</div>
-            <div class="bio-card-title">水稻资源</div>
-            <div class="bio-card-copy">在统一入口完成水稻基因序列、UTR/启动子获取与六类蛋白定位预测。</div>
+            <div class="bio-card-title">水稻基因一站式分析</div>
+            <div class="bio-card-copy">独立工作区直达序列、表达、多组学、预测与科研报告。</div>
+          </div>
+          <div class="bio-card">
+            <div class="bio-card-icon">◎</div>
+            <div class="bio-card-title">RiceData 基因信息批量检索</div>
+            <div class="bio-card-copy">批量检索 RiceData 基因名称、数据库 ID 与功能信息。</div>
           </div>
           <div class="bio-card">
             <div class="bio-card-icon">✓</div>

@@ -25,7 +25,7 @@
     <key>MyBioToolsAuthBaseURL</key>
     <string>https://mybiotools.aizs.top</string>
     <key>MyBioToolsLicensePublicJWK</key>
-    <string></string>
+    <string>{"key_ops":["verify"],"ext":true,"alg":"Ed25519","crv":"Ed25519","x":"E3TVbqmXKIAp5bg-3Gr9vyvuQu9kFEJw4EyNiC4CGN0","kty":"OKP"}</string>
     <key>ITSAppUsesNonExemptEncryption</key>
     <false/>
     <key>LSApplicationCategoryType</key>

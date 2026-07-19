@@ -18,6 +18,7 @@ MAIN_SCRIPT = APP_SOURCE / "main.py"
 
 PAGES = {
     "概览": ["工作台首页", "方法与数据说明中心"],
+    "水稻基因一站式分析": ["水稻基因一站式分析"],
     "生信小工具": [
         "DNA 组成与质量检查",
         "Primer3 引物设计",
@@ -25,9 +26,8 @@ PAGES = {
         "FASTA ID 重命名",
         "RAP ↔ MSU ID 转换",
     ],
-    "水稻资源": [
+    "RiceData 基因信息批量检索": [
         "RiceData 信息检索",
-        "水稻基因一站式分析",
     ],
 }
 
@@ -56,7 +56,8 @@ def check_page(category: str, tool: str) -> list[str]:
     app = AppTest.from_file(str(MAIN_SCRIPT), default_timeout=30)
     app.run()
     app.sidebar.radio[0].set_value(category).run()
-    app.sidebar.selectbox[0].set_value(tool).run()
+    if app.sidebar.selectbox:
+        app.sidebar.selectbox[0].set_value(tool).run()
 
     failures: list[str] = []
     errors = element_messages(app.error)
