@@ -41,7 +41,7 @@ from PIL import Image  # noqa: E402
 from prediction_services import run_nlstradamus  # noqa: E402
 from prediction_visualization import build_prediction_chart_artifacts  # noqa: E402
 from primer_design import design_primer_pairs, normalize_dna_sequence, validate_dna_sequence  # noqa: E402
-from report_builder import build_report_artifacts  # noqa: E402
+from report_builder import CHINESE_FONT, build_report_artifacts  # noqa: E402
 from protein_domain_analysis import parse_matches_payload, build_domain_artifacts  # noqa: E402
 from gene_structure_analysis import parse_gene_model, build_gene_structure_artifacts  # noqa: E402
 from promoter_regulation_analysis import build_tfbs_artifacts, parse_plantregmap_html  # noqa: E402
@@ -435,7 +435,11 @@ class CoreFunctionTests(unittest.TestCase):
             model=1,
             cutoff=0.6,
         )
-        self.assertEqual(result.status, "matched")
+        self.assertEqual(
+            result.status,
+            "matched",
+            f"NLStradamus error={result.error!r}; raw={result.raw_text!r}",
+        )
         self.assertEqual(result.classification, "NLS detected")
         self.assertEqual((result.regions[0].start, result.regions[0].end), (2, 15))
         self.assertAlmostEqual(result.regions[0].score or 0, 0.954, places=3)
@@ -653,7 +657,7 @@ class CoreFunctionTests(unittest.TestCase):
                 fonts = list(root.iter(f"{{{w}}}rFonts"))
                 self.assertTrue(fonts, name)
                 for font in fonts:
-                    self.assertEqual(font.get(f"{{{w}}}eastAsia"), "华文仿宋")
+                    self.assertEqual(font.get(f"{{{w}}}eastAsia"), CHINESE_FONT)
                     self.assertEqual(font.get(f"{{{w}}}ascii"), "Times New Roman")
                     self.assertEqual(font.get(f"{{{w}}}hAnsi"), "Times New Roman")
                     self.assertEqual(font.get(f"{{{w}}}cs"), "Times New Roman")
@@ -667,7 +671,7 @@ class CoreFunctionTests(unittest.TestCase):
                 fonts = list(style.iter(f"{{{w}}}rFonts"))
                 self.assertTrue(fonts, style_id)
                 for font in fonts:
-                    self.assertEqual(font.get(f"{{{w}}}eastAsia"), "华文仿宋")
+                    self.assertEqual(font.get(f"{{{w}}}eastAsia"), CHINESE_FONT)
                     self.assertEqual(font.get(f"{{{w}}}ascii"), "Times New Roman")
                     self.assertEqual(font.get(f"{{{w}}}hAnsi"), "Times New Roman")
                 checked_styles.add(style_id)
