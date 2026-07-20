@@ -182,7 +182,7 @@ def fetch_gene_models(
     feature_rows: list[dict[str, object]] = []
     warnings: list[str] = []
     client = session or requests.Session()
-    client.headers.update({"Accept": "application/json", "User-Agent": "MyBioTools/1.9.1"})
+    client.headers.update({"Accept": "application/json", "User-Agent": "MyBioTools/1.9.7"})
     for index, (input_id, gene_id) in enumerate(unique, start=1):
         if cancel_check and cancel_check():
             break

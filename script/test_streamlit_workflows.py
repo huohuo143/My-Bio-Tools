@@ -29,6 +29,7 @@ from rice_utr_promoter_downloader import TRANSCRIPT_SCOPE_ALL  # noqa: E402
 class StreamlitWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        os.environ["MY_BIO_TOOLS_ACCESS_MODE"] = "authorized"
         os.chdir(APP_SOURCE)
         sys.path.insert(0, str(APP_SOURCE))
 
@@ -36,9 +37,9 @@ class StreamlitWorkflowTests(unittest.TestCase):
         app = AppTest.from_file(str(MAIN_SCRIPT), default_timeout=30)
         app.run()
         if tool == "水稻基因一站式分析":
-            app.sidebar.radio[0].set_value("水稻基因一站式分析").run()
+            next(item for item in app.sidebar.radio if item.label == "工作区").set_value("水稻基因一站式分析").run()
         else:
-            app.sidebar.radio[0].set_value(category).run()
+            next(item for item in app.sidebar.radio if item.label == "工作区").set_value(category).run()
             if app.sidebar.selectbox:
                 app.sidebar.selectbox[0].set_value(tool).run()
         self.assertFalse(app.exception)
@@ -83,7 +84,8 @@ class StreamlitWorkflowTests(unittest.TestCase):
     def test_unified_rice_gene_page_defaults(self) -> None:
         app = self.open_tool("RiceData 基因信息批量检索", "水稻基因一站式分析")
         self.assert_no_runtime_errors(app)
-        self.assertIn("水稻基因一站式分析", app.sidebar.radio[0].options)
+        workspace = next(item for item in app.sidebar.radio if item.label == "工作区")
+        self.assertIn("水稻基因一站式分析", workspace.options)
         self.assertEqual(app.radio[0].value, "单基因深度分析")
         self.assertEqual(app.radio[1].value, "RAP/MSU ID")
         self.assertEqual(len(app.multiselect[0].value), 6)
@@ -109,9 +111,9 @@ class StreamlitWorkflowTests(unittest.TestCase):
     def test_codex_model_reasoning_and_speed_controls(self) -> None:
         app = self.open_tool("RiceData 基因信息批量检索", "水稻基因一站式分析")
         interpretation = next(item for item in app.radio if item.label == "选择解读方式")
-        interpretation.set_value("大模型增强解读（可选）").run()
-        provider = next(item for item in app.radio if item.label == "大模型来源")
-        provider.set_value("ChatGPT 账号（Codex，免 API Key，推荐）").run()
+        interpretation.set_value("llm").run()
+        provider = next(item for item in app.selectbox if item.label == "大模型来源")
+        provider.set_value("codex_chatgpt").run()
         controls = {item.label: item for item in app.selectbox}
         self.assertIn("Codex 模型", controls)
         self.assertIn("推理能力", controls)
@@ -120,18 +122,18 @@ class StreamlitWorkflowTests(unittest.TestCase):
         self.assertIn("快速（约 1.5×）", controls["响应速度"].options)
         self.assertIn("验证 Codex 模型连接", [item.label for item in app.button])
 
-        controls["Codex 模型"].set_value("GPT-5.6 Sol（复杂任务）").run()
+        controls["Codex 模型"].set_value("gpt-5.6-sol").run()
         controls = {item.label: item for item in app.selectbox}
         self.assertIn("最大", controls["推理能力"].options)
-        controls["Codex 模型"].set_value("GPT-5.2（兼容）").run()
+        controls["Codex 模型"].set_value("gpt-5.2").run()
         controls = {item.label: item for item in app.selectbox}
         self.assertNotIn("最大", controls["推理能力"].options)
         self.assertEqual(controls["响应速度"].options, ["标准"])
-        provider = next(item for item in app.radio if item.label == "大模型来源")
-        provider.set_value("本机 Ollama（数据不出本机）").run()
+        provider = next(item for item in app.selectbox if item.label == "大模型来源")
+        provider.set_value("ollama").run()
         self.assertIn("验证 Ollama 连接", [item.label for item in app.button])
-        provider = next(item for item in app.radio if item.label == "大模型来源")
-        provider.set_value("OpenAI 兼容云端 API").run()
+        provider = next(item for item in app.selectbox if item.label == "大模型来源")
+        provider.set_value("openai_compatible").run()
         self.assertIn("验证 API 连接", [item.label for item in app.button])
         self.assert_no_runtime_errors(app)
 
@@ -173,7 +175,7 @@ class StreamlitWorkflowTests(unittest.TestCase):
             self.assert_no_runtime_errors(app)
             page_running = next(item for item in JOB_MANAGER.snapshots() if item.job_id == job_id)
             self.assertEqual(len(app.get("progress")), len(page_running.progress_items))
-            app.sidebar.radio[0].set_value("生信小工具").run()
+            next(item for item in app.sidebar.radio if item.label == "工作区").set_value("生信小工具").run()
             app.sidebar.selectbox[0].set_value("DNA 组成与质量检查").run()
             self.assert_no_runtime_errors(app)
             running = next(item for item in JOB_MANAGER.snapshots() if item.job_id == job_id)

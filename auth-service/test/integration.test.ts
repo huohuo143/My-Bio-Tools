@@ -45,6 +45,7 @@ interface SentMail { to: string; subject: string; text?: string; html?: string }
 async function fixture() {
   const db = new SQLiteD1();
   db.database.exec(readFileSync(new URL("../migrations/0001_initial.sql", import.meta.url), "utf8"));
+  db.database.exec(readFileSync(new URL("../migrations/0002_authorization_period.sql", import.meta.url), "utf8"));
   const pair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
   const mail: SentMail[] = [];
   const releaseBytes = new TextEncoder().encode("fixture macOS update payload");
@@ -128,7 +129,17 @@ test("complete registration, review, device, reset, suspension and deletion life
   assert.equal(user.status, "pending");
 
   response = await request(`/api/v1/admin/users/${user.id}/status`, "PATCH", { status: "active" }, undefined, true);
+  assert.equal(response.status, 400);
+  assert.equal((await responseBody(response)).error.code, "INVALID_AUTHORIZATION_PERIOD");
+
+  response = await request(`/api/v1/admin/users/${user.id}/status`, "PATCH", {
+    status: "active", authorizationPeriod: "1_year",
+  }, undefined, true);
   assert.equal(response.status, 200);
+  const authorizationExpiresAt = Number(
+    db.database.prepare("select authorization_expires_at from users where id = ?").get(user.id)?.authorization_expires_at,
+  );
+  assert.equal(authorizationExpiresAt > Math.floor(Date.now() / 1000), true);
 
   const login = async (installationId: string) => request("/api/v1/login", "POST", {
     email, password, installationId, platform: "macos", deviceName: installationId, appVersion: "1.9.1",
@@ -137,6 +148,9 @@ test("complete registration, review, device, reset, suspension and deletion life
   const firstBody = await responseBody(first);
   assert.equal(first.status, 200);
   assert.equal(typeof firstBody.offlineLicense, "string");
+  assert.equal(firstBody.user.authorizationExpiresAt, authorizationExpiresAt);
+  assert.equal(firstBody.user.authorizationPermanent, false);
+  assert.equal(firstBody.offlineLicenseExpiresAt <= authorizationExpiresAt, true);
   const licensePayload = JSON.parse(
     Buffer.from(String(firstBody.offlineLicense).split(".")[1], "base64url").toString("utf8"),
   ) as { omics_key_b64?: string };
@@ -186,10 +200,26 @@ test("complete registration, review, device, reset, suspension and deletion life
 
   response = await request(`/api/v1/admin/users/${user.id}/status`, "PATCH", { status: "suspended", reason: "测试停用" }, undefined, true);
   assert.equal(response.status, 200);
-  response = await request(`/api/v1/admin/users/${user.id}/status`, "PATCH", { status: "active" }, undefined, true);
+  response = await request(`/api/v1/admin/users/${user.id}/status`, "PATCH", {
+    status: "active", authorizationPeriod: "permanent",
+  }, undefined, true);
   assert.equal(response.status, 200);
   response = await request(`/api/v1/admin/users/${user.id}/send-password-reset`, "POST", {}, undefined, true);
   assert.equal(response.status, 200);
+
+  const renewedLogin = await request("/api/v1/login", "POST", {
+    email, password: "New-valid-research-password-2026", installationId: "installation-one",
+    platform: "macos", deviceName: "installation-one", appVersion: "1.9.5",
+  });
+  const renewedBody = await responseBody(renewedLogin);
+  assert.equal(renewedLogin.status, 200);
+  db.database.prepare("update users set authorization_expires_at = ? where id = ?")
+    .run(Math.floor(Date.now() / 1000) - 1, user.id);
+  response = await request("/api/v1/token/refresh", "POST", {
+    refreshToken: renewedBody.refreshToken, installationId: "installation-one",
+  });
+  assert.equal(response.status, 403);
+  assert.equal((await responseBody(response)).error.code, "AUTHORIZATION_EXPIRED");
 
   response = await request(`/api/v1/admin/users/${user.id}`, "DELETE", { email, confirmation: "wrong" }, undefined, true);
   assert.equal(response.status, 400);

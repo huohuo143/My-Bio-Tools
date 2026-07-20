@@ -1,5 +1,8 @@
 import { requireAdmin } from "./access.ts";
 import {
+  authorizationIsExpired, AuthorizationPeriodError, resolveAuthorizationPeriod,
+} from "./authorization.ts";
+import {
   hashPassword, isValidEmail, normalizeEmail, randomToken, sha256, signJWT,
   validateSigningConfiguration, verifyPassword,
 } from "./crypto.ts";
@@ -7,7 +10,9 @@ import { sendAdminRegistrationNotice, sendResetEmail, sendReviewNotice, sendVeri
 import { bearerToken, enforceRateLimit, error, json, readJson, sourceHash } from "./http.ts";
 import { adminDashboard, page, resetPasswordForm } from "./pages.ts";
 import { Repository } from "./repository.ts";
-import { authenticateAccess, installationHash, issueTokens, validatedOmicsDatabaseKey } from "./tokens.ts";
+import {
+  authenticateAccess, AuthorizationExpiredError, installationHash, issueTokens, validatedOmicsDatabaseKey,
+} from "./tokens.ts";
 import type { Env, UpdateManifestClaims, UserRow, UserStatus } from "./types.ts";
 
 const EMAIL_VERIFY_SECONDS = 24 * 60 * 60;
@@ -20,6 +25,8 @@ function publicUser(user: UserRow): Record<string, unknown> {
     id: user.id, email: user.email, realName: user.real_name, labRole: user.lab_role,
     applicationNote: user.application_note, status: user.status,
     emailVerifiedAt: user.email_verified_at, reviewReason: user.review_reason, createdAt: user.created_at,
+    authorizationExpiresAt: user.authorization_expires_at,
+    authorizationPermanent: user.status === "active" && user.authorization_expires_at === null,
   };
 }
 
@@ -65,7 +72,8 @@ async function handleRegister(request: Request, env: Env): Promise<Response> {
     id: crypto.randomUUID(), email, real_name: realName, lab_role: labRole,
     application_note: applicationNote, password_hash: await hashPassword(password, salt, env.PASSWORD_PEPPER),
     password_salt: salt, status: "unverified", email_verified_at: null, reviewed_at: null,
-    reviewed_by: null, review_reason: null, failed_attempts: 0, locked_until: null,
+    reviewed_by: null, review_reason: null, authorization_expires_at: null,
+    failed_attempts: 0, locked_until: null,
     created_at: now, updated_at: now,
   };
   const verificationToken = randomToken();
@@ -154,6 +162,10 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     const [code, message, status] = states[user.status] ?? ["ACCOUNT_UNAVAILABLE", "账号不可用。", 403];
     return error(code, message, status);
   }
+  if (authorizationIsExpired(user.authorization_expires_at, now)) {
+    await repository.revokeAllSessions(user.id, now);
+    return error("AUTHORIZATION_EXPIRED", "账号授权已到期，请联系管理员续期。", 403);
+  }
   // Validate the runtime key format and key pair before mutating devices or
   // sessions. This catches cross-runtime JWK incompatibilities during login
   // without leaving orphaned authorization records.
@@ -170,7 +182,7 @@ async function handleLogin(request: Request, env: Env): Promise<Response> {
     actorType: "user", actorId: user.id, action: "login", targetType: "device", targetId: device.id,
     metadata: { platform, appVersion: body.appVersion ?? "unknown" },
   });
-  return json({ user: publicUser(user), ...(await issueTokens(env, session, device, refreshToken, now)) });
+  return json({ user: publicUser(user), ...(await issueTokens(env, user, session, device, refreshToken, now)) });
 }
 
 async function handleRefresh(request: Request, env: Env): Promise<Response> {
@@ -184,6 +196,10 @@ async function handleRefresh(request: Request, env: Env): Promise<Response> {
   const user = await repository.getUserById(session.user_id);
   const deviceHash = await installationHash(body.installationId ?? "");
   const device = (await repository.listDevices(session.user_id)).find((entry) => entry.id === session.device_id);
+  if (user && user.status === "active" && authorizationIsExpired(user.authorization_expires_at, now)) {
+    await repository.revokeAllSessions(user.id, now);
+    return error("AUTHORIZATION_EXPIRED", "账号授权已到期，请联系管理员续期。", 403);
+  }
   if (!user || user.status !== "active" || !device || device.revoked_at !== null || device.installation_hash !== deviceHash) {
     await repository.revokeSession(session.id, now);
     return error("AUTHORIZATION_REVOKED", "账号或设备授权已撤销。", 403);
@@ -194,19 +210,24 @@ async function handleRefresh(request: Request, env: Env): Promise<Response> {
     return error("SESSION_ROTATION_FAILED", "会话刷新失败，请重新登录。", 401);
   }
   const rotatedSession = { ...session, refresh_hash: nextHash, last_seen_at: now };
-  return json({ user: publicUser(user), ...(await issueTokens(env, rotatedSession, device, nextRefreshToken, now)) });
+  return json({ user: publicUser(user), ...(await issueTokens(env, user, rotatedSession, device, nextRefreshToken, now)) });
 }
 
 async function requireUser(request: Request, env: Env) {
   const token = bearerToken(request);
   if (!token) throw new Response("Missing access token", { status: 401 });
   try { return await authenticateAccess(token, env); }
-  catch { throw new Response("Authorization revoked", { status: 403 }); }
+  catch (caught) {
+    if (caught instanceof AuthorizationExpiredError) {
+      throw error("AUTHORIZATION_EXPIRED", "账号授权已到期，请联系管理员续期。", 403);
+    }
+    throw new Response("Authorization revoked", { status: 403 });
+  }
 }
 
 async function handleRenewLicense(request: Request, env: Env): Promise<Response> {
   const context = await requireUser(request, env);
-  const tokens = await issueTokens(env, context.session, context.device, "", nowSeconds());
+  const tokens = await issueTokens(env, context.user, context.session, context.device, "", nowSeconds());
   delete tokens.refreshToken;
   delete tokens.refreshExpiresAt;
   return json(tokens);
@@ -301,7 +322,7 @@ async function handleAppUpdateDownload(request: Request, env: Env): Promise<Resp
     headers: {
       accept: "application/octet-stream",
       authorization: `Bearer ${token}`,
-      "user-agent": "My-Bio-Tools-Update-Service/1.9.1",
+      "user-agent": "My-Bio-Tools-Update-Service/1.9.5",
       "x-github-api-version": "2022-11-28",
     },
     redirect: "manual",
@@ -396,14 +417,15 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
   const repository = new Repository(env.DB);
   if ((url.pathname === "/admin" || url.pathname === "/admin/") && request.method === "GET") {
     const status = url.searchParams.get("status") ?? "pending";
-    const allowed = new Set(["all", "unverified", "pending", "active", "rejected", "suspended"]);
+    const allowed = new Set(["all", "unverified", "pending", "active", "expired", "rejected", "suspended"]);
     const selectedStatus = allowed.has(status) ? status : "pending";
     const query = (url.searchParams.get("q") ?? "").trim().slice(0, 100);
-    const users = await repository.listUsers(selectedStatus, query);
+    const now = nowSeconds();
+    const users = await repository.listUsers(selectedStatus, query, now);
     const devicesByUser: Record<string, Awaited<ReturnType<Repository["listDevices"]>>> = {};
     const expandedUserId = url.searchParams.get("devices") ?? "";
     if (users.some((user) => user.id === expandedUserId)) devicesByUser[expandedUserId] = await repository.listDevices(expandedUserId);
-    return adminDashboard(users, await repository.userStatusCounts(), selectedStatus, query, devicesByUser, url.searchParams.get("message") ?? "");
+    return adminDashboard(users, await repository.userStatusCounts(now), selectedStatus, query, devicesByUser, url.searchParams.get("message") ?? "");
   }
   if (url.pathname === "/admin/action" && request.method === "POST") {
     const form = await request.formData();
@@ -414,8 +436,13 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
     let target = ""; let method = "POST"; let body: Record<string, string> | undefined; let message = "操作已完成。";
     if (action === "set_status") {
       target = `/api/v1/admin/members/${encodeURIComponent(userId)}/status`; method = "PATCH";
-      body = { status: String(form.get("status") ?? ""), reason: String(form.get("reason") ?? "") };
-      message = "账号状态已更新。";
+      body = {
+        status: String(form.get("status") ?? ""),
+        reason: String(form.get("reason") ?? ""),
+        authorizationPeriod: String(form.get("authorizationPeriod") ?? ""),
+        customExpiresOn: String(form.get("customExpiresOn") ?? ""),
+      };
+      message = "账号状态与授权期限已更新。";
     } else if (action === "force_logout") {
       target = `/api/v1/admin/members/${encodeURIComponent(userId)}/force-logout`; message = "已强制退出该账号的全部设备。";
     } else if (action === "send_password_reset") {
@@ -445,23 +472,46 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
     request.method === "GET"
   ) {
     const status = url.searchParams.get("status") ?? "pending";
-    const allowed = new Set(["all", "unverified", "pending", "active", "rejected", "suspended"]);
+    const allowed = new Set(["all", "unverified", "pending", "active", "expired", "rejected", "suspended"]);
     if (!allowed.has(status)) return error("INVALID_STATUS", "账号状态无效。", 400);
-    const users = await repository.listUsers(status, (url.searchParams.get("q") ?? "").trim().slice(0, 100));
-    return json({ users: users.map(publicUser), counts: await repository.userStatusCounts() });
+    const now = nowSeconds();
+    const users = await repository.listUsers(status, (url.searchParams.get("q") ?? "").trim().slice(0, 100), now);
+    return json({ users: users.map(publicUser), counts: await repository.userStatusCounts(now) });
   }
   if (url.pathname === "/api/v1/admin/audit-logs" && request.method === "GET") return json({ logs: await repository.listAuditLogs() });
   const statusMatch = url.pathname.match(/^\/api\/v1\/admin\/(?:users|members)\/([^/]+)\/status$/u);
   if (statusMatch && request.method === "PATCH") {
-    const body = await readJson<{ status?: string; reason?: string }>(request);
+    const body = await readJson<{
+      status?: string; reason?: string; authorizationPeriod?: string; customExpiresOn?: string;
+    }>(request);
     if (body.status !== "active" && body.status !== "rejected" && body.status !== "suspended") return error("INVALID_STATUS", "只能批准、拒绝或停用账号。", 400);
     const reason = (body.reason ?? "").trim().slice(0, 500);
+    const now = nowSeconds();
+    let authorizationExpiresAt: number | null = null;
+    let authorizationLabel: string | null = null;
+    let authorizationPeriod: string | null = null;
+    if (body.status === "active") {
+      try {
+        const selection = resolveAuthorizationPeriod(body.authorizationPeriod, body.customExpiresOn, now);
+        authorizationExpiresAt = selection.expiresAt;
+        authorizationLabel = selection.label;
+        authorizationPeriod = selection.period;
+      } catch (caught) {
+        if (caught instanceof AuthorizationPeriodError) {
+          return error("INVALID_AUTHORIZATION_PERIOD", caught.message, 400);
+        }
+        throw caught;
+      }
+    }
     const previousUser = await repository.getUserById(statusMatch[1]);
-    if (!(await repository.setUserStatus(statusMatch[1], body.status, reason, adminEmail, nowSeconds()))) return error("USER_NOT_FOUND", "账号不存在或尚未验证邮箱。", 404);
+    if (!(await repository.setUserStatus(
+      statusMatch[1], body.status, reason, adminEmail, now, authorizationExpiresAt,
+    ))) return error("USER_NOT_FOUND", "账号不存在或尚未验证邮箱。", 404);
     const user = await repository.getUserById(statusMatch[1]);
     await writeAudit(repository, request, env, {
       actorType: "admin", actorId: adminEmail, action: `set_status_${body.status}`,
-      targetType: "user", targetId: statusMatch[1], metadata: { reason },
+      targetType: "user", targetId: statusMatch[1],
+      metadata: { reason, authorizationPeriod, authorizationLabel, authorizationExpiresAt },
     });
     if (user) try { await sendReviewNotice(env, user, body.status, reason, previousUser?.status); }
     catch (emailError) { console.error("review_notice_failed", { userId: user.id, name: (emailError as Error).name }); }
@@ -526,7 +576,7 @@ async function route(request: Request, env: Env): Promise<Response> {
     await validateSigningConfiguration(env.LICENSE_PRIVATE_JWK, env.LICENSE_PUBLIC_JWK);
     validatedOmicsDatabaseKey(env.OMICS_DATABASE_KEY_B64);
     updateManifestConfiguration(env);
-    return json({ status: "ok", version: "1.9.1", licenseSigning: "ok", omicsKeyDelivery: "ok", appUpdate: "ok" });
+    return json({ status: "ok", version: "1.9.5", licenseSigning: "ok", omicsKeyDelivery: "ok", appUpdate: "ok", authorizationPeriod: "ok" });
   }
   if (url.pathname === "/verify-email" && request.method === "GET") return handleVerifyEmail(url, request, env);
   if (url.pathname === "/reset-password" && request.method === "GET") return handleResetPasswordGet(url);

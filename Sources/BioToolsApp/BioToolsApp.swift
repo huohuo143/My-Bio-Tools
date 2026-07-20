@@ -43,7 +43,6 @@ struct BioToolsApp: App {
                 Button("重新启动内置服务") {
                     backend.restart()
                 }
-                .disabled(!auth.isAuthorized)
                 .keyboardShortcut("r", modifiers: [.command, .shift])
 
                 Button("打开运行日志") {

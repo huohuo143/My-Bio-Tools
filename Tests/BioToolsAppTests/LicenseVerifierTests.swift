@@ -4,6 +4,18 @@ import XCTest
 @testable import BioToolsApp
 
 final class LicenseVerifierTests: XCTestCase {
+    func testUserProfileDecodesAuthorizationPeriodAndLegacyPayload() throws {
+        let datedJSON = #"{"id":"u1","email":"member@example.test","realName":"测试成员","labRole":"博士研究生","status":"active","reviewReason":null,"authorizationExpiresAt":1800000000,"authorizationPermanent":false}"#
+        let dated = try JSONDecoder().decode(UserProfile.self, from: Data(datedJSON.utf8))
+        XCTAssertEqual(dated.authorizationExpiresAt, 1_800_000_000)
+        XCTAssertEqual(dated.authorizationPermanent, false)
+
+        let legacyJSON = #"{"id":"u1","email":"member@example.test","realName":"测试成员","labRole":"博士研究生","status":"active","reviewReason":null}"#
+        let legacy = try JSONDecoder().decode(UserProfile.self, from: Data(legacyJSON.utf8))
+        XCTAssertNil(legacy.authorizationExpiresAt)
+        XCTAssertNil(legacy.authorizationPermanent)
+    }
+
     private let installationID = "test-installation-1"
     private let publicJWK = #"{"kty":"OKP","crv":"Ed25519","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}"#
     private let token = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJ0eXAiOiJvZmZsaW5lLWxpY2Vuc2UiLCJzdWIiOiJ1c2VyLXRlc3QiLCJkZXZpY2UiOiJTSHJyVlVIZUtuNEZLdURoR2JZdVpMWlFaZV9JYTR4T1p3THcwcDFkRllBIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsInZlcnNpb24iOjEsIm9taWNzX2tleV9iNjQiOiJBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBPSJ9.8GfIMRJgHTll-dziWVIVisx5UZfQoIyRKt7Maqkjm6-Iff52od2tzxpP9IVQYgpwCtC7fygBbrxqctITN6DHDg"

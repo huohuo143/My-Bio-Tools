@@ -6,6 +6,7 @@ import type { Env, UserRow } from "../src/types.ts";
 const user = {
   email: "member@example.test",
   real_name: "测试成员",
+  authorization_expires_at: null,
 } as UserRow;
 
 test("Resend transport sends only the expected transactional email payload", async () => {

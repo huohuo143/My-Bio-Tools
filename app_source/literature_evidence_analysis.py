@@ -61,6 +61,7 @@ def fetch_europe_pmc(targets: list[dict[str, object]], max_results: int = 50, se
                     "pmid": item.get("pmid", ""), "doi": item.get("doi", ""), "title": title,
                     "year": item.get("pubYear", ""), "journal": item.get("journalTitle", ""),
                     "authors": item.get("authorString", ""), "abstract_available": bool(abstract),
+                    "abstract_text": abstract,
                     "matched_fields": ",".join(matched), "evidence_tags": _tags(context),
                     "verification_status": "需人工核对全文", "source_type": "online_metadata",
                     "source_url": f"https://europepmc.org/article/MED/{item.get('pmid')}" if item.get("pmid") else response.url,
@@ -115,6 +116,8 @@ def enrich_ricedata_references(
                 row["year"] = row.get("year") or matched.get("pubYear", "")
                 row["journal"] = matched.get("journalTitle", "")
                 row["authors"] = matched.get("authorString", "")
+                row["abstract_available"] = bool(matched.get("abstractText"))
+                row["abstract_text"] = str(matched.get("abstractText") or "")
                 row["europe_pmc_url"] = (
                     f"https://europepmc.org/article/MED/{matched.get('pmid')}"
                     if matched.get("pmid") else response.url
@@ -209,7 +212,7 @@ def fetch_rapdb_genetic_evidence(rap_ids: list[str], session: requests.Session |
     keywords = re.compile(r"allele|variation|variant|mutation|mutant|phenotype|QTL", re.I)
     for rap_id in dict.fromkeys(value for value in rap_ids if value):
         try:
-            response = client.get(RAPDB_URL, params={"name": rap_id}, timeout=(8, 40), headers={"User-Agent": "MyBioTools/1.9.1"})
+            response = client.get(RAPDB_URL, params={"name": rap_id}, timeout=(8, 40), headers={"User-Agent": "MyBioTools/1.9.7"})
             response.raise_for_status(); raw[f"{rap_id}/rapdb_gene_detail.html"] = response.content
             soup = BeautifulSoup(response.text, "html.parser"); matched = 0
             for row in soup.find_all("tr"):

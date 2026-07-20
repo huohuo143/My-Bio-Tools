@@ -9,6 +9,8 @@ export interface AuthContext {
   claims: AccessClaims;
 }
 
+export class AuthorizationExpiredError extends Error {}
+
 export function validatedOmicsDatabaseKey(value: string): string {
   const normalized = value.trim();
   try {
@@ -22,18 +24,21 @@ export function validatedOmicsDatabaseKey(value: string): string {
 
 export async function issueTokens(
   env: Env,
+  user: UserRow,
   session: SessionRow,
   device: DeviceRow,
   refreshToken: string,
   now: number,
 ): Promise<Record<string, unknown>> {
+  const authorizationCeiling = user.authorization_expires_at ?? Number.MAX_SAFE_INTEGER;
+  if (authorizationCeiling <= now) throw new AuthorizationExpiredError("Account authorization expired");
   const accessClaims: AccessClaims = {
     typ: "access", sub: session.user_id, sid: session.id, device: device.installation_hash,
-    iat: now, exp: now + 15 * 60,
+    iat: now, exp: Math.min(now + 15 * 60, authorizationCeiling),
   };
   const licenseClaims: LicenseClaims = {
     typ: "offline-license", sub: session.user_id, device: device.installation_hash,
-    iat: now, exp: now + 7 * 24 * 60 * 60, version: 1,
+    iat: now, exp: Math.min(now + 7 * 24 * 60 * 60, authorizationCeiling), version: 1,
     omics_key_b64: validatedOmicsDatabaseKey(env.OMICS_DATABASE_KEY_B64),
   };
   return {
@@ -61,6 +66,10 @@ export async function authenticateAccess(token: string, env: Env): Promise<AuthC
   const device = devices.find((candidate) => candidate.id === session.device_id) ?? null;
   if (!user || user.status !== "active" || !device || device.revoked_at !== null) {
     throw new Error("Account or device revoked");
+  }
+  if (user.authorization_expires_at !== null && user.authorization_expires_at <= now) {
+    await repository.revokeAllSessions(user.id, now);
+    throw new AuthorizationExpiredError("Account authorization expired");
   }
   if (device.installation_hash !== claims.device) throw new Error("Device mismatch");
   return { user, device, session, claims };

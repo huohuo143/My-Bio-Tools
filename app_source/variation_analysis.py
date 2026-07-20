@@ -179,7 +179,7 @@ def fetch_ricevarmap_variants(msu_ids: list[str], session: requests.Session | No
     for msu_id in dict.fromkeys(value for value in msu_ids if value):
         url = requests.compat.urljoin(RICEVARMAP_V3_URL, f"vars_in_gene/?gene={msu_id}")
         try:
-            response = client.get(url, timeout=(8, 45), headers={"User-Agent": "MyBioTools/1.9.1"})
+            response = client.get(url, timeout=(8, 45), headers={"User-Agent": "MyBioTools/1.9.7"})
             response.raise_for_status(); raw[f"{msu_id}/ricevarmap_v3.html"] = response.content
             soup = BeautifulSoup(response.text, "html.parser")
             parsed = 0

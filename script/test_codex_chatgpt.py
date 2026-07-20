@@ -44,6 +44,22 @@ def _response_payload() -> dict[str, object]:
                 "experiment": "独立样本qRT-PCR并开展遗传验证。",
             }
         ],
+        "gene_identity": {
+            "summary": "fixture identity",
+            "molecular_role": "fixture role",
+            "localization": "fixture localization",
+            "evidence_ids": [],
+        },
+        "core_function": {
+            "summary": "fixture function",
+            "evidence_ids": [],
+        },
+        "mechanism_chains": [],
+        "context_branches": [],
+        "omics_integration": [],
+        "testable_hypotheses": [],
+        "knowledge_gaps": [],
+        "references": [],
     }
 
 

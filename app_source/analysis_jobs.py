@@ -36,7 +36,7 @@ PHASE_LABELS = OrderedDict(
         ("sequences", "序列获取"),
         ("ricedata", "RiceData"),
         ("efp", "Rice eFP"),
-        ("lab_omics", "实验室已分析多组学"),
+        ("lab_omics", "水稻多组学证据"),
         ("predictions", "蛋白定位预测"),
         ("protein_domains", "蛋白结构域与功能位点"),
         ("gene_structure", "基因结构与转录本"),

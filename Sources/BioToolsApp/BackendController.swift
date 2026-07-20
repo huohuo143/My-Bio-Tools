@@ -30,12 +30,12 @@ final class BackendController: ObservableObject {
     private static let appSourceRelativePath = "app_source"
 
     func configureAuthorization(_ authorization: BackendAuthorization?) {
-        guard self.authorization != authorization else { return }
-        self.authorization = authorization
-        guard authorization != nil else {
-            stop()
+        guard self.authorization != authorization else {
+            startIfNeeded()
             return
         }
+        self.authorization = authorization
+        stop()
         startIfNeeded()
     }
 
@@ -49,10 +49,6 @@ final class BackendController: ObservableObject {
     }
 
     func start() {
-        guard let authorization else {
-            stop()
-            return
-        }
         stop()
         recentOutput = ""
         startupDuration = nil
@@ -64,7 +60,7 @@ final class BackendController: ObservableObject {
 
         do {
             let resources = try resolveResources()
-            let unlockDirectory = try createOmicsUnlockDirectory()
+            let unlockDirectory = try authorization.map { _ in try createOmicsUnlockDirectory() }
             omicsUnlockDirectory = unlockDirectory
             let port = try availableLoopbackPort()
             let baseURL = URL(string: "http://127.0.0.1:\(port)")!
@@ -82,11 +78,21 @@ final class BackendController: ObservableObject {
             environment["PYTHONNOUSERSITE"] = "1"
             environment["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
             environment["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none"
-            environment["MY_BIO_TOOLS_OFFLINE_LICENSE"] = authorization.offlineLicense
-            environment["MY_BIO_TOOLS_INSTALLATION_HASH"] = authorization.installationHash
-            environment["MY_BIO_TOOLS_LICENSE_PUBLIC_JWK"] = authorization.publicJWK
-            environment["MY_BIO_TOOLS_OMICS_KEY_B64"] = authorization.omicsKeyB64
-            environment["MY_BIO_TOOLS_OMICS_UNLOCK_DIR"] = unlockDirectory.path
+            environment["MY_BIO_TOOLS_ACCESS_MODE"] = authorization == nil ? "guest" : "authorized"
+            if let authorization, let unlockDirectory {
+                environment["MY_BIO_TOOLS_OFFLINE_LICENSE"] = authorization.offlineLicense
+                environment["MY_BIO_TOOLS_INSTALLATION_HASH"] = authorization.installationHash
+                environment["MY_BIO_TOOLS_LICENSE_PUBLIC_JWK"] = authorization.publicJWK
+                environment["MY_BIO_TOOLS_OMICS_KEY_B64"] = authorization.omicsKeyB64
+                environment["MY_BIO_TOOLS_OMICS_UNLOCK_DIR"] = unlockDirectory.path
+            } else {
+                environment.removeValue(forKey: "MY_BIO_TOOLS_OFFLINE_LICENSE")
+                environment.removeValue(forKey: "MY_BIO_TOOLS_INSTALLATION_HASH")
+                environment.removeValue(forKey: "MY_BIO_TOOLS_LICENSE_PUBLIC_JWK")
+                environment.removeValue(forKey: "MY_BIO_TOOLS_OMICS_KEY_B64")
+                environment.removeValue(forKey: "MY_BIO_TOOLS_OMICS_UNLOCK_DIR")
+                environment.removeValue(forKey: "MY_BIO_TOOLS_OMICS_DB")
+            }
             task.environment = environment
 
             let pipe = Pipe()
@@ -136,10 +142,6 @@ final class BackendController: ObservableObject {
     }
 
     func restart() {
-        guard authorization != nil else {
-            stop()
-            return
-        }
         stop()
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000)

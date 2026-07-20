@@ -77,8 +77,9 @@ def initialize_plotting_runtime() -> None:
 
 
 def initialize_interpretation_runtime() -> None:
-    """Verify that the frozen build contains the safe Codex interpretation modules."""
+    """Verify that the frozen build contains every safe interpretation route."""
     import codex_chatgpt
+    import llm_providers
     import report_interpretation
 
     if codex_chatgpt.PROVIDER_CODEX_CHATGPT != "codex_chatgpt":
@@ -88,6 +89,26 @@ def initialize_interpretation_runtime() -> None:
     required = set(codex_chatgpt.CODEX_RESPONSE_SCHEMA.get("required", []))
     if "executive_summary" not in required or "integrated_hypotheses" not in required:
         raise RuntimeError("Codex response schema is incomplete")
+    expected_cloud_providers = {
+        "deepseek_api",
+        "doubao_ark_api",
+        "zhipu_glm_api",
+        "qwen_dashscope_api",
+        "chatanywhere_api",
+        "openai_compatible",
+    }
+    if set(llm_providers.CLOUD_API_PROVIDERS) != expected_cloud_providers:
+        raise RuntimeError("Cloud provider registry is incomplete")
+    exported_ids = {
+        report_interpretation.PROVIDER_DEEPSEEK,
+        report_interpretation.PROVIDER_DOUBAO,
+        report_interpretation.PROVIDER_ZHIPU,
+        report_interpretation.PROVIDER_QWEN,
+        report_interpretation.PROVIDER_CHATANYWHERE,
+        report_interpretation.PROVIDER_OPENAI_COMPATIBLE,
+    }
+    if exported_ids != expected_cloud_providers:
+        raise RuntimeError("Cloud provider exports are inconsistent")
 
 
 def watch_parent(parent_pid: int) -> None:
@@ -119,14 +140,18 @@ def main() -> int:
             raise FileNotFoundError(f"Missing Streamlit entry point: {main_script}")
         if not 1 <= args.port <= 65535:
             raise ValueError(f"Invalid port: {args.port}")
-        try:
-            require_license_from_environment()
-        except LicenseValidationError as exc:
-            raise RuntimeError(f"Authorization rejected: {exc}") from exc
-        try:
-            unlock_omics_database(app_dir)
-        except OmicsUnlockError as exc:
-            raise RuntimeError(f"Omics database unlock rejected: {exc}") from exc
+        access_mode = os.environ.get("MY_BIO_TOOLS_ACCESS_MODE", "guest")
+        if access_mode == "authorized":
+            try:
+                require_license_from_environment()
+            except LicenseValidationError as exc:
+                raise RuntimeError(f"Authorization rejected: {exc}") from exc
+            try:
+                unlock_omics_database(app_dir)
+            except OmicsUnlockError as exc:
+                raise RuntimeError(f"Omics database unlock rejected: {exc}") from exc
+        elif access_mode != "guest":
+            raise RuntimeError("Unsupported access mode")
 
     try:
         initialize_plotting_runtime()

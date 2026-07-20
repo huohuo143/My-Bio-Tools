@@ -8,6 +8,7 @@ const sampleAdminUser: UserRow = {
   id: "user-1", email: "member@example.test", real_name: "测试成员", lab_role: "博士研究生",
   application_note: "课题组内部使用", password_hash: "hash", password_salt: "salt", status: "pending",
   email_verified_at: 1, reviewed_at: null, reviewed_by: null, review_reason: null,
+  authorization_expires_at: null,
   failed_attempts: 0, locked_until: null, created_at: 1, updated_at: 1,
 };
 
@@ -32,6 +33,7 @@ test("health endpoint exposes no secret configuration", async () => {
   assert.equal(body.licenseSigning, "ok");
   assert.equal(body.omicsKeyDelivery, "ok");
   assert.equal(body.appUpdate, "ok");
+  assert.equal((body as { authorizationPeriod?: string }).authorizationPeriod, "ok");
   assert.equal(response.headers.get("cache-control"), "no-store");
 });
 
@@ -55,6 +57,9 @@ test("admin page exposes reviewed account operations", async () => {
   assert.match(html, /永久删除/u);
   assert.match(html, /name="confirmation"/u);
   assert.match(html, /action="\/admin\/action"/u);
+  for (const label of ["1月", "6月", "1年", "2年", "永久", "自定义时间"]) assert.match(html, new RegExp(label, "u"));
+  assert.match(html, /name="authorizationPeriod"/u);
+  assert.match(html, /name="customExpiresOn" type="date"/u);
 });
 
 test("reset form never places the token in external URLs", async () => {

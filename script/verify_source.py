@@ -16,12 +16,16 @@ DATA_DIR = APP_SOURCE / "data" / "Rice_Genome_Annotation_Project"
 
 HELPER_MODULES = [
     "app_ui",
+    "appearance_preferences",
     "analysis_explanations",
     "tool_catalog",
     "rice_gene_core",
     "prediction_services",
     "prediction_visualization",
     "codex_chatgpt",
+    "llm_providers",
+    "mechanism_evidence",
+    "model_preferences",
     "report_interpretation",
     "report_builder",
     "rice_efp",

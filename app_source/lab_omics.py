@@ -27,6 +27,13 @@ FIGURE_TERM_TRANSLATIONS = {
     "电光叶蝉": "electric leafhopper",
     "白背飞虱": "white-backed planthopper",
     "褐飞虱": "brown planthopper",
+    "未感染": "uninfected",
+    "感染": "infection",
+    "取食": "feeding",
+    "对照": "control",
+    "处理": "treatment",
+    "病毒": "virus",
+    "转录组": "transcriptome",
     "历史芯片": "historical microarray",
     "感性背景（源文件标签：感）": "susceptible background",
     "源表未明确标注": "background not specified in source table",
@@ -53,7 +60,7 @@ def canonical_msu_loci(values: Iterable[object]) -> list[str]:
 def resolve_database_path(explicit: str | Path | None = None) -> Path:
     candidate = Path(explicit) if explicit else Path(os.environ.get("MY_BIO_TOOLS_OMICS_DB", "") or DEFAULT_DATABASE)
     if not candidate.is_file():
-        raise LabOmicsUnavailable("实验室多组学数据库尚未由登录授权解锁。")
+        raise LabOmicsUnavailable("水稻多组学证据数据库尚未由登录授权解锁。")
     return candidate
 
 
@@ -73,7 +80,13 @@ def query_lab_omics(msu_loci: Iterable[object], database_path: str | Path | None
         "differential": [],
         "profiles": [],
         "status": [],
+        "published_evidence": [],
+        "consensus_scores": [],
+        "qc_metrics": [],
+        "dataset_context": [],
+        "dataset_registry": [],
         "database_schema": "",
+        "data_package_version": "",
     }
     if not loci:
         return empty
@@ -92,7 +105,8 @@ def query_lab_omics(msu_loci: Iterable[object], database_path: str | Path | None
             FROM differential_results r
             JOIN datasets d ON d.dataset_id=r.dataset_id
             JOIN comparisons c ON c.comparison_id=r.comparison_id
-            WHERE r.msu_locus IN ({placeholders}) AND d.inclusion_status='included'
+            WHERE r.msu_locus IN ({placeholders}) AND d.search_section='primary'
+                  AND d.biological_replicates_verified=1
             ORDER BY d.category,d.assay,d.dataset_id,c.time_order,c.comparison_id,r.msu_locus,
                      r.site_position,r.msu_model
             """,
@@ -105,12 +119,31 @@ def query_lab_omics(msu_loci: Iterable[object], database_path: str | Path | None
                    d.host_background, d.replicate_note, d.descriptive, d.historical
             FROM abundance_profiles p
             JOIN datasets d ON d.dataset_id=p.dataset_id
-            WHERE p.msu_locus IN ({placeholders}) AND d.inclusion_status='included'
+            WHERE p.msu_locus IN ({placeholders}) AND d.search_section='primary'
+                  AND d.biological_replicates_verified=1
             ORDER BY d.category,d.assay,d.dataset_id,p.msu_locus,p.site_position,p.msu_model
             """,
             tuple(loci),
         )
-        dataset_ids = sorted({str(row["dataset_id"]) for row in [*differential, *profiles]})
+        primary_dataset_ids = sorted({str(row["dataset_id"]) for row in [*differential, *profiles]})
+        published_evidence = _rows(
+            connection,
+            f"""
+            SELECT e.*, d.display_name AS dataset_name, d.host_background, d.treatment,
+                   d.control_group, d.replicate_note, d.evidence_level,
+                   d.biological_replicates_verified, d.raw_data_availability,
+                   d.analysis_origin, d.tissue, d.reference_version,
+                   d.statistical_threshold, d.qc_summary, d.accession, d.citation,
+                   d.risk_note AS dataset_risk_note
+            FROM published_evidence e
+            JOIN datasets d ON d.dataset_id=e.dataset_id
+            WHERE e.msu_locus IN ({placeholders}) AND d.search_section='published_evidence'
+            ORDER BY d.dataset_id,e.source_file,e.source_sheet,e.source_row,e.evidence_id
+            """,
+            tuple(loci),
+        )
+        published_dataset_ids = sorted({str(row["dataset_id"]) for row in published_evidence})
+        dataset_ids = sorted(set(primary_dataset_ids + published_dataset_ids))
         if dataset_ids:
             dataset_marks = ",".join("?" for _ in dataset_ids)
             datasets = _rows(
@@ -133,9 +166,29 @@ def query_lab_omics(msu_loci: Iterable[object], database_path: str | Path | None
         status = _rows(
             connection,
             """SELECT dataset_id,display_name,category,assay,inclusion_status,inclusion_reason,notes
-               FROM datasets WHERE inclusion_status IN ('absent','candidate') ORDER BY inclusion_status,dataset_id""",
+               FROM datasets WHERE inclusion_status IN ('absent','candidate')
+               AND search_section='primary' ORDER BY inclusion_status,dataset_id""",
         )
         schema = connection.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()
+        package_version = connection.execute("SELECT value FROM metadata WHERE key='data_package_version'").fetchone()
+        dataset_registry = _rows(
+            connection,
+            "SELECT * FROM datasets ORDER BY search_section,category,assay,dataset_id",
+        )
+        consensus_scores = _rows(
+            connection,
+            f"SELECT * FROM consensus_scores WHERE msu_locus IN ({placeholders}) ORDER BY treatment_class,rank",
+            tuple(loci),
+        )
+        if dataset_ids:
+            dataset_marks = ",".join("?" for _ in dataset_ids)
+            qc_metrics = _rows(
+                connection,
+                f"SELECT * FROM qc_metrics WHERE dataset_id IN ({dataset_marks}) ORDER BY dataset_id,metric",
+                tuple(dataset_ids),
+            )
+        else:
+            qc_metrics = []
         sample_index: dict[str, list[dict[str, object]]] = defaultdict(list)
         for sample in samples:
             sample_index[str(sample["dataset_id"])].append(sample)
@@ -154,7 +207,13 @@ def query_lab_omics(msu_loci: Iterable[object], database_path: str | Path | None
             "differential": differential,
             "profiles": profiles,
             "status": status,
+            "published_evidence": published_evidence,
+            "consensus_scores": consensus_scores,
+            "qc_metrics": qc_metrics,
+            "dataset_context": datasets,
+            "dataset_registry": dataset_registry,
             "database_schema": str(schema[0]) if schema else "",
+            "data_package_version": str(package_version[0]) if package_version else "",
         }
     finally:
         connection.close()

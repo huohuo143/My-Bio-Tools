@@ -4,23 +4,6 @@ import Foundation
 
 @MainActor
 final class AuthStore: ObservableObject {
-    private final class ContinuationGate<Value>: @unchecked Sendable {
-        private let lock = NSLock()
-        private var continuation: CheckedContinuation<Value, Never>?
-
-        init(_ continuation: CheckedContinuation<Value, Never>) {
-            self.continuation = continuation
-        }
-
-        func finish(_ value: Value) {
-            lock.lock()
-            let pending = continuation
-            continuation = nil
-            lock.unlock()
-            pending?.resume(returning: value)
-        }
-    }
-
     @Published private(set) var phase: AuthPhase = .checking
     @Published private(set) var authorization: BackendAuthorization?
     @Published private(set) var devices: [DeviceProfile] = []
@@ -93,10 +76,7 @@ final class AuthStore: ObservableObject {
 
     @discardableResult
     func login(email: String, password: String, rememberCredentials: Bool) async -> Bool {
-        guard let api, !installationID.isEmpty else {
-            notice = "登录组件尚未初始化，请重新启动应用；若问题持续，请重新安装最新版。"
-            return false
-        }
+        guard let api else { return false }
         isBusy = true; notice = nil
         defer { isBusy = false }
         do {
@@ -316,51 +296,53 @@ final class AuthStore: ObservableObject {
             let directory = support.appending(path: "My Bio Tools", directoryHint: .isDirectory)
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
             let fallbackURL = directory.appending(path: "installation-id")
+            var mayCreateKeychainItem = true
+            do {
+                if let data = try keychain.data(for: account, interactionAllowed: false),
+                   let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil {
+                    try data.write(to: fallbackURL, options: .atomic)
+                    try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fallbackURL.path)
+                    return value
+                }
+            } catch {
+                mayCreateKeychainItem = false
+            }
             if let data = try? Data(contentsOf: fallbackURL),
                let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil {
-                return value
-            }
-            if let data = await Self.readKeychainData(keychain, account: account),
-               let value = String(data: data, encoding: .utf8), UUID(uuidString: value) != nil {
-                try data.write(to: fallbackURL, options: .atomic)
-                try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fallbackURL.path)
                 return value
             }
             let value = UUID().uuidString.lowercased()
             let data = Data(value.utf8)
             try data.write(to: fallbackURL, options: .atomic)
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fallbackURL.path)
+            if mayCreateKeychainItem { try? keychain.save(data, for: account) }
             return value
         }.value
     }
 
     private func loadSession() async throws -> StoredSession? {
-        guard let data = await Self.readKeychainData(keychain, account: Self.sessionAccount) else {
-            return nil
-        }
-        return try JSONDecoder().decode(StoredSession.self, from: data)
+        let keychain = self.keychain
+        let account = Self.sessionAccount
+        return try await Task.detached(priority: .userInitiated) {
+            let candidate: Data?
+            do { candidate = try keychain.data(for: account, interactionAllowed: false) }
+            catch { return nil }
+            guard let data = candidate else { return nil }
+            return try JSONDecoder().decode(StoredSession.self, from: data)
+        }.value
     }
 
     private func loadTrustedTime() async throws -> Int64? {
-        guard let data = await Self.readKeychainData(keychain, account: Self.trustedTimeAccount),
-              let string = String(data: data, encoding: .utf8) else { return nil }
-        return Int64(string)
-    }
-
-    nonisolated private static func readKeychainData(
-        _ keychain: KeychainStore,
-        account: String,
-        timeout: TimeInterval = 2
-    ) async -> Data? {
-        await withCheckedContinuation { continuation in
-            let gate = ContinuationGate(continuation)
-            DispatchQueue.global(qos: .userInitiated).async {
-                gate.finish(try? keychain.data(for: account, interactionAllowed: false))
-            }
-            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
-                gate.finish(nil)
-            }
-        }
+        let keychain = self.keychain
+        let account = Self.trustedTimeAccount
+        return await Task.detached(priority: .userInitiated) {
+            let candidate: Data?
+            do { candidate = try keychain.data(for: account, interactionAllowed: false) }
+            catch { return nil }
+            guard let data = candidate,
+                  let string = String(data: data, encoding: .utf8) else { return nil }
+            return Int64(string)
+        }.value
     }
 
     private func saveLoginCredentials(email: String, password: String) throws {

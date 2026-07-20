@@ -7,6 +7,8 @@ struct UserProfile: Codable, Equatable, Sendable {
     let labRole: String
     let status: String
     let reviewReason: String?
+    let authorizationExpiresAt: Int64?
+    let authorizationPermanent: Bool?
 }
 
 struct DeviceProfile: Codable, Identifiable, Equatable {
@@ -102,7 +104,7 @@ enum AuthClientError: LocalizedError {
     var isExplicitRevocation: Bool {
         guard case let .server(code, _, status) = self else { return false }
         return status == 401 || status == 403 || [
-            "AUTHORIZATION_REVOKED", "ACCOUNT_SUSPENDED", "ACCOUNT_DELETED", "SESSION_EXPIRED"
+            "AUTHORIZATION_REVOKED", "AUTHORIZATION_EXPIRED", "ACCOUNT_SUSPENDED", "ACCOUNT_DELETED", "SESSION_EXPIRED"
         ].contains(code)
     }
 }

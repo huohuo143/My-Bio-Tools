@@ -131,6 +131,14 @@ class ReportInterpretationTests(unittest.TestCase):
             "multiomics_interpretation": "mRNA与蛋白方向不一致，需区分转录后调控。",
             "haplotype_interpretation": "主单倍型占优，但尚无性状关联。",
             "integrated_hypotheses": [],
+            "gene_identity": {},
+            "core_function": {},
+            "mechanism_chains": [],
+            "context_branches": [],
+            "omics_integration": [],
+            "testable_hypotheses": [],
+            "knowledge_gaps": [],
+            "references": [],
         }, ensure_ascii=False)
         session = _Session({"message": {"content": content}})
         rows, status = generate_interpretations(

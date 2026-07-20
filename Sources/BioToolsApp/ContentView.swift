@@ -9,32 +9,29 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if auth.isAuthorized {
-                switch backend.state {
-                case .idle, .starting:
-                    LaunchView()
-                case .ready(let url):
-                    VStack(spacing: 0) {
-                        ServiceBar(
-                            startupDuration: backend.startupDuration,
-                            reload: backend.reloadPage,
-                            restart: backend.restart,
-                            openLog: backend.openLog,
-                            openAccount: { showingAccount = true }
-                        )
-                        Divider()
-                        StreamlitWebView(url: url, reloadID: backend.pageReloadID)
-                    }
-                case .failed(let message):
-                    FailureView(
-                        message: message,
-                        details: backend.recentOutput,
-                        retry: backend.restart,
-                        openLog: backend.openLog
+            switch backend.state {
+            case .idle, .starting:
+                LaunchView()
+            case .ready(let url):
+                VStack(spacing: 0) {
+                    ServiceBar(
+                        startupDuration: backend.startupDuration,
+                        isAuthorized: auth.isAuthorized,
+                        reload: backend.reloadPage,
+                        restart: backend.restart,
+                        openLog: backend.openLog,
+                        openAccount: { showingAccount = true }
                     )
+                    Divider()
+                    StreamlitWebView(url: url, reloadID: backend.pageReloadID)
                 }
-            } else {
-                AuthGateView()
+            case .failed(let message):
+                FailureView(
+                    message: message,
+                    details: backend.recentOutput,
+                    retry: backend.restart,
+                    openLog: backend.openLog
+                )
             }
         }
         .frame(minWidth: 960, minHeight: 640)
@@ -46,7 +43,11 @@ struct ContentView: View {
             backend.stop()
         }
         .sheet(isPresented: $showingAccount) {
-            AccountView().environmentObject(auth).environmentObject(updates)
+            if auth.isAuthorized {
+                AccountView().environmentObject(auth).environmentObject(updates)
+            } else {
+                AuthGateView().environmentObject(auth)
+            }
         }
         .task(id: auth.isAuthorized) {
             if auth.isAuthorized { await updates.check(auth: auth, silent: true) }
@@ -56,6 +57,7 @@ struct ContentView: View {
 
 private struct ServiceBar: View {
     let startupDuration: TimeInterval?
+    let isAuthorized: Bool
     let reload: () -> Void
     let restart: () -> Void
     let openLog: () -> Void
@@ -86,7 +88,7 @@ private struct ServiceBar: View {
             .help("刷新当前工具（⌘R）")
 
             Button(action: openAccount) {
-                Label("账号", systemImage: "person.crop.circle")
+                Label(isAuthorized ? "账号" : "登录/注册", systemImage: isAuthorized ? "person.crop.circle" : "lock.open")
             }
             .buttonStyle(.borderless)
 

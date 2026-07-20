@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sqlite3
 import sys
 import time
 import unittest
@@ -35,6 +36,18 @@ class LabOmicsTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         if not DATABASE.is_file():
             raise unittest.SkipTest(f"database unavailable: {DATABASE}")
+        connection = sqlite3.connect(f"file:{DATABASE}?mode=ro", uri=True)
+        try:
+            dataset_columns = {
+                str(row[1]) for row in connection.execute("PRAGMA table_info(datasets)")
+            }
+        finally:
+            connection.close()
+        required_columns = {"search_section", "biological_replicates_verified"}
+        if not required_columns.issubset(dataset_columns):
+            raise unittest.SkipTest(
+                "database schema predates the v1.9.7 multi-omics package"
+            )
 
     def test_msu_canonicalization_and_traceability(self) -> None:
         self.assertEqual(

@@ -62,8 +62,9 @@ struct AuthGateView: View {
                 Image(nsImage: NSApplication.shared.applicationIconImage)
                     .resizable().scaledToFit().frame(width: 92, height: 92)
                 Text("My Bio Tools").font(.system(size: 34, weight: .semibold, design: .rounded))
-                Text("课题组内部科研分析工具").font(.title3.weight(.medium))
-                Label("账号须经管理员审核", systemImage: "person.badge.shield.checkmark")
+                Text("本地生信工具与水稻科研工作台").font(.title3.weight(.medium))
+                Label("生信小工具无需注册即可使用", systemImage: "checkmark.circle")
+                Label("水稻一站式分析与 RiceData 需登录解锁", systemImage: "person.badge.shield.checkmark")
                 Label("分析文件与结果默认只在本机处理", systemImage: "lock.shield")
                 Label("每个账号最多 2 台设备，支持 7 天离线使用", systemImage: "laptopcomputer.and.iphone")
                 Text("版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")")
@@ -97,14 +98,6 @@ struct AuthGateView: View {
                     .textContentType(.password)
                 if mode == .register {
                     SecureField("确认密码", text: $confirmation).textFieldStyle(.roundedBorder)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("管理员联系方式").font(.callout.weight(.semibold))
-                        Text("QQ：289614391").textSelection(.enabled)
-                        Link("邮箱：289614391@qq.com", destination: URL(string: "mailto:289614391@qq.com")!)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if mode == .login {
                     Toggle("记住账号和密码", isOn: $rememberCredentials)
@@ -118,7 +111,7 @@ struct AuthGateView: View {
                 if let notice = auth.notice {
                     Text(notice).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                Button {
+                Button(mode == .login ? "登录" : "提交注册申请") {
                     Task {
                         if mode == .login {
                             await auth.login(
@@ -137,15 +130,9 @@ struct AuthGateView: View {
                             confirmation = ""
                         }
                     }
-                } label: {
-                    HStack(spacing: 8) {
-                        if auth.isBusy { ProgressView().controlSize(.small) }
-                        Text(auth.isBusy ? (mode == .login ? "正在登录…" : "正在提交…") : (mode == .login ? "登录" : "提交注册申请"))
-                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .keyboardShortcut(.defaultAction)
                 .disabled(auth.isBusy || email.isEmpty || password.isEmpty || (mode == .register && (realName.isEmpty || password != confirmation)))
 
                 if mode == .login {
@@ -153,6 +140,7 @@ struct AuthGateView: View {
                         .buttonStyle(.link)
                         .disabled(email.isEmpty || auth.isBusy)
                 }
+                if auth.isBusy { ProgressView().controlSize(.small) }
             }
             .padding(36)
             .frame(width: 400)
@@ -207,7 +195,8 @@ struct AccountView: View {
                     LabeledContent("姓名", value: user.realName)
                     LabeledContent("邮箱", value: user.email)
                     LabeledContent("身份", value: user.labRole)
-                    LabeledContent("授权到期", value: expiresAt.formatted(date: .abbreviated, time: .shortened))
+                    LabeledContent("账号授权", value: accountAuthorizationText(user))
+                    LabeledContent("本机离线凭证", value: expiresAt.formatted(date: .abbreviated, time: .shortened))
                     LabeledContent("当前模式", value: offline ? "离线授权" : "已联网验证")
                 }
             }
@@ -278,5 +267,13 @@ struct AccountView: View {
             await auth.loadDevices()
             await updates.check(auth: auth, silent: true)
         }
+    }
+
+    private func accountAuthorizationText(_ user: UserProfile) -> String {
+        if let timestamp = user.authorizationExpiresAt {
+            return Date(timeIntervalSince1970: TimeInterval(timestamp))
+                .formatted(date: .abbreviated, time: .shortened)
+        }
+        return user.authorizationPermanent == true ? "永久" : "未读取，请联网刷新"
     }
 }

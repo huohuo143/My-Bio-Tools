@@ -74,6 +74,7 @@ export interface UserRow {
   reviewed_at: number | null;
   reviewed_by: string | null;
   review_reason: string | null;
+  authorization_expires_at: number | null;
   failed_attempts: number;
   locked_until: number | null;
   created_at: number;

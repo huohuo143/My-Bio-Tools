@@ -8,6 +8,7 @@ from pathlib import Path
 import sys
 
 os.environ.setdefault("ARROW_DEFAULT_MEMORY_POOL", "system")
+os.environ["MY_BIO_TOOLS_ACCESS_MODE"] = "authorized"
 
 from streamlit.testing.v1 import AppTest
 
@@ -55,7 +56,7 @@ def element_messages(elements: object) -> list[str]:
 def check_page(category: str, tool: str) -> list[str]:
     app = AppTest.from_file(str(MAIN_SCRIPT), default_timeout=30)
     app.run()
-    app.sidebar.radio[0].set_value(category).run()
+    next(item for item in app.sidebar.radio if item.label == "工作区").set_value(category).run()
     if app.sidebar.selectbox:
         app.sidebar.selectbox[0].set_value(tool).run()
 

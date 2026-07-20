@@ -5,7 +5,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import html
-import hashlib
 import re
 
 import pandas as pd
@@ -36,6 +35,22 @@ from codex_chatgpt import (
     probe_codex_connection,
 )
 from job_ui import STATUS_LABELS, render_progress_breakdown
+from llm_providers import (
+    CLOUD_API_PROVIDERS,
+    CLOUD_PROVIDER_PRESETS,
+    cloud_preference_keys,
+    cloud_provider,
+)
+from model_preferences import (
+    DEFAULT_INTERPRETATION_PREFERENCES,
+    get_model_connection_test_result,
+    load_interpretation_preferences,
+    model_connection_fingerprint,
+    normalize_interpretation_preferences,
+    record_model_connection_test_result,
+    save_interpretation_preferences,
+    start_model_connection_test,
+)
 from prediction_services import PREDICTORS, TOOL_URLS, run_selected_predictions
 from prediction_visualization import build_prediction_chart_artifacts
 from sequence_visualization import build_sequence_relationship_artifacts
@@ -52,6 +67,7 @@ from report_interpretation import (
     generate_interpretations,
     probe_model_connection,
 )
+from mechanism_evidence import build_mechanism_claims
 from protein_domain_analysis import analyze_protein_domains, build_domain_artifacts, MATCHES_API, INTERPRO_URL
 from gene_structure_analysis import fetch_gene_models, build_gene_structure_artifacts, ENSEMBL_REST_URL
 from promoter_regulation_analysis import predict_tfbs, build_tfbs_artifacts, PLANTREGMAP_URL
@@ -157,28 +173,110 @@ def _connection_fingerprint(
     reasoning: str = "",
     speed: str = "",
 ) -> str:
-    key_digest = hashlib.sha256(api_key.encode("utf-8")).hexdigest() if api_key else ""
-    return "|".join((provider, base_url.strip(), model.strip(), key_digest, reasoning, speed))
+    return model_connection_fingerprint(
+        provider,
+        base_url,
+        model,
+        api_key,
+        reasoning=reasoning,
+        speed=speed,
+    )
 
 
 def _remember_connection_result(fingerprint: str, ok: bool, message: str) -> None:
-    st.session_state.rice_model_connection_result = {
-        "fingerprint": fingerprint,
-        "ok": ok,
-        "message": message,
-    }
+    result = record_model_connection_test_result(
+        fingerprint,
+        ok=ok,
+        message=message,
+    )
+    st.session_state.rice_model_connection_result = result
 
 
+@st.fragment(run_every=1.0)
 def _render_connection_result(fingerprint: str) -> bool:
-    result = st.session_state.get("rice_model_connection_result", {})
-    if result.get("fingerprint") != fingerprint:
+    result = get_model_connection_test_result(fingerprint)
+    if result is None:
+        session_result = st.session_state.get("rice_model_connection_result", {})
+        result = session_result if session_result.get("fingerprint") == fingerprint else None
+    if result is None:
         st.info("尚未验证当前模型配置。")
         return False
-    if result.get("ok"):
+    status = str(result.get("status") or "")
+    if status == "testing":
+        st.info(str(result.get("message") or "正在自动测试模型连接…"), icon="⏳")
+        return False
+    if status == "needs_api_key":
+        st.info(str(result.get("message") or "请输入 API Key 后验证连接。"), icon="🔐")
+        return False
+    if status == "ok" or result.get("ok"):
         st.success(f"连接通畅 · {result.get('message', '')}", icon="✅")
         return True
     st.error(f"连接失败 · {result.get('message', '')}", icon="❌")
     return False
+
+
+_INTERPRETATION_MODE_LABELS = {
+    MODE_RULES: "科研规则解读（离线，推荐）",
+    MODE_LLM: "大模型增强解读（可选）",
+}
+_INTERPRETATION_PROVIDER_LABELS = {
+    PROVIDER_CODEX_CHATGPT: "ChatGPT 账号（Codex，免 API Key，推荐）",
+    PROVIDER_OLLAMA: "本机 Ollama（数据不出本机）",
+    **{preset.provider_id: preset.label for preset in CLOUD_PROVIDER_PRESETS},
+}
+
+
+def _initialize_interpretation_preferences() -> dict[str, str]:
+    """Restore saved choices into Streamlit before any model widget is created."""
+    loaded = load_interpretation_preferences()
+    widget_defaults = {
+        "rice_interpretation_mode": loaded["mode"],
+        "rice_interpretation_provider": loaded["provider"],
+        "rice_codex_model": loaded["codex_model"],
+        "rice_codex_reasoning": loaded["codex_reasoning"],
+        "rice_codex_speed": loaded["codex_speed"],
+        "rice_ollama_base_url": loaded["ollama_base_url"],
+        "rice_ollama_model": loaded["ollama_model"],
+    }
+    for preset in CLOUD_PROVIDER_PRESETS:
+        base_key, model_key = cloud_preference_keys(preset.provider_id)
+        widget_defaults[f"rice_{base_key}"] = loaded[base_key]
+        widget_defaults[f"rice_{model_key}"] = loaded[model_key]
+    for key, value in widget_defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+    if "rice_saved_interpretation_preferences" not in st.session_state:
+        st.session_state.rice_saved_interpretation_preferences = loaded
+    return loaded
+
+
+def _current_interpretation_preferences() -> dict[str, str]:
+    raw = dict(DEFAULT_INTERPRETATION_PREFERENCES)
+    raw.update(
+        {
+            "mode": st.session_state.get("rice_interpretation_mode", MODE_RULES),
+            "provider": st.session_state.get("rice_interpretation_provider", PROVIDER_CODEX_CHATGPT),
+            "codex_model": st.session_state.get("rice_codex_model", CODEX_ACCOUNT_MODEL),
+            "codex_reasoning": st.session_state.get("rice_codex_reasoning", CODEX_DEFAULT_REASONING),
+            "codex_speed": st.session_state.get("rice_codex_speed", CODEX_DEFAULT_SPEED),
+            "ollama_base_url": st.session_state.get("rice_ollama_base_url", raw["ollama_base_url"]),
+            "ollama_model": st.session_state.get("rice_ollama_model", raw["ollama_model"]),
+        }
+    )
+    for preset in CLOUD_PROVIDER_PRESETS:
+        base_key, model_key = cloud_preference_keys(preset.provider_id)
+        raw[base_key] = st.session_state.get(f"rice_{base_key}", raw[base_key])
+        raw[model_key] = st.session_state.get(f"rice_{model_key}", raw[model_key])
+    return normalize_interpretation_preferences(raw)
+
+
+def _persist_interpretation_preferences() -> dict[str, str]:
+    current = _current_interpretation_preferences()
+    previous = st.session_state.get("rice_saved_interpretation_preferences")
+    if current != previous:
+        current = save_interpretation_preferences(current)
+        st.session_state.rice_saved_interpretation_preferences = current
+    return current
 
 
 def _efp_glossary_rows() -> list[dict[str, str]]:
@@ -880,6 +978,8 @@ def _reference_literature_rows(references: list[dict[str, object]]) -> list[dict
         "year": row.get("year", ""),
         "journal": row.get("journal", ""),
         "authors": row.get("authors", ""),
+        "abstract_available": bool(row.get("abstract_text")),
+        "abstract_text": row.get("abstract_text", ""),
         "matched_fields": row.get("matched_by", "ricedata_reference_id"),
         "evidence_tags": "RiceData-linked",
         "verification_status": row.get("verification_status", "RiceData 关联文献，需核验具体关系"),
@@ -1115,10 +1215,10 @@ def execute_analysis_request(
     deep_raw: dict[str, bytes] = {}
     if request.include_lab_omics:
         try:
-            reporter.update("lab_omics", 0, 1, "正在按MSU locus检索实验室已分析多组学")
+            reporter.update("lab_omics", 0, 1, "正在按MSU locus检索水稻多组学证据")
             loci = _lab_omics_loci(bundle)
             if not loci:
-                raise ValueError("未取得可用于实验室多组学查询的MSU locus。")
+                raise ValueError("未取得可用于水稻多组学证据查询的MSU locus。")
             result = query_lab_omics(loci)
             bundle.lab_omics_datasets = list(result["datasets"])
             bundle.lab_omics_comparisons = list(result["comparisons"])
@@ -1126,21 +1226,29 @@ def execute_analysis_request(
             bundle.lab_omics_differential = list(result["differential"])
             bundle.lab_omics_profiles = list(result["profiles"])
             bundle.lab_omics_status = list(result["status"])
+            bundle.lab_omics_published_evidence = list(result["published_evidence"])
+            bundle.lab_omics_consensus_scores = list(result["consensus_scores"])
+            bundle.lab_omics_qc_metrics = list(result["qc_metrics"])
+            bundle.lab_omics_dataset_context = list(result["dataset_context"])
+            bundle.lab_omics_dataset_registry = list(result["dataset_registry"])
             charts, raw = build_lab_omics_artifacts(result)
             deep_charts.update(charts)
             deep_raw.update(raw)
             bundle.analysis_options["lab_omics_schema"] = result.get("database_schema", "")
-            bundle.sources.append("Wu Lab internal analysed-omics database · schema v1 · read-only")
+            bundle.analysis_options["omics_data_package_version"] = result.get("data_package_version", "")
+            bundle.sources.append(
+                "Rice multi-omics evidence database · schema v3 · replicated primary data + separately labelled published evidence · read-only"
+            )
             reporter.complete(
                 "lab_omics",
-                f"命中差异记录 {len(bundle.lab_omics_differential)} 条、定量记录 {len(bundle.lab_omics_profiles)} 条",
-                warning=not bool(bundle.lab_omics_differential or bundle.lab_omics_profiles),
+                f"命中可统计差异 {len(bundle.lab_omics_differential)} 条、定量 {len(bundle.lab_omics_profiles)} 条、论文证据 {len(bundle.lab_omics_published_evidence)} 条",
+                warning=not bool(bundle.lab_omics_differential or bundle.lab_omics_profiles or bundle.lab_omics_published_evidence),
             )
         except (LabOmicsUnavailable, ValueError) as exc:
-            bundle.warnings.append(f"实验室多组学：{exc}")
+            bundle.warnings.append(f"水稻多组学证据：{exc}")
             reporter.complete("lab_omics", "数据库未解锁或ID未映射；其他分析继续", warning=True)
         except Exception as exc:
-            bundle.warnings.append(f"实验室多组学模块失败：{type(exc).__name__}: {exc}")
+            bundle.warnings.append(f"水稻多组学证据模块失败：{type(exc).__name__}: {exc}")
             reporter.complete("lab_omics", "模块失败，其他分析继续", warning=True)
     selected_deep = set(request.selected_deep_analyses)
     gene_targets = _gene_targets(bundle)
@@ -1300,7 +1408,44 @@ def execute_analysis_request(
     except Exception as exc:
         bundle.warnings.append(f"序列关系图生成失败：{type(exc).__name__}: {exc}")
 
+    if request.interpretation_mode == MODE_LLM and bundle.ricedata_references:
+        try:
+            reporter.update("interpretation", 0, 1, "正在补齐关键论文摘要与 DOI 元数据")
+            missing = [row for row in bundle.ricedata_references if not str(row.get("abstract_text") or "").strip()]
+            if missing:
+                ordered = sorted(
+                    missing,
+                    key=lambda row: -int(row.get("year") or 0) if str(row.get("year") or "").isdigit() else 0,
+                )
+                selected_references = list(dict.fromkeys(
+                    str(row.get("reference_id") or row.get("doi") or "")
+                    for row in [*ordered[:6], *ordered[-6:]]
+                    if row.get("reference_id") or row.get("doi")
+                ))
+                selected_rows = [
+                    row for row in missing
+                    if str(row.get("reference_id") or row.get("doi") or "") in selected_references
+                ]
+                enriched, ai_reference_raw, ai_reference_warnings = enrich_ricedata_references(selected_rows)
+                enriched_index = {
+                    str(row.get("reference_id") or row.get("doi") or ""): row for row in enriched
+                }
+                bundle.ricedata_references = [
+                    enriched_index.get(str(row.get("reference_id") or row.get("doi") or ""), row)
+                    for row in bundle.ricedata_references
+                ]
+                bundle.literature_rows = _dedupe_literature_rows([
+                    *_reference_literature_rows(bundle.ricedata_references),
+                    *bundle.literature_rows,
+                ])
+                deep_raw.update({f"ai_interpretation/references/{name}": value for name, value in ai_reference_raw.items()})
+                bundle.warnings.extend(ai_reference_warnings)
+        except Exception as exc:
+            bundle.warnings.append(f"AI 关键论文摘要补齐失败：{type(exc).__name__}: {exc}")
+
     _stamp_deep_records(bundle, request)
+    reporter.update("interpretation", 0, 1, "正在整理功能、文献与机制证据")
+    bundle.mechanism_claims = build_mechanism_claims(bundle)
     if request.interpretation_mode == MODE_LLM:
         reporter.update("interpretation", 0, 1, "正在生成结构化科研解读")
     try:
@@ -1556,17 +1701,103 @@ def _render_interpretations(bundle: AnalysisBundle, sections: set[str] | None = 
             st.markdown(f"**建议下一步**：{row.get('recommended_action') or '—'}")
 
 
+def _render_ai_synthesis(bundle: AnalysisBundle) -> None:
+    synthesis = bundle.ai_synthesis or {}
+    status = bundle.interpretation_status
+    requested = status.get("requested_mode") == MODE_LLM
+    if not requested:
+        st.info("本次未选择大模型增强，因此没有生成独立 AI 深度解读报告。")
+        return
+    report_mode = str(synthesis.get("report_mode") or "evidence_fallback")
+    if report_mode != "ai":
+        st.warning("AI 未完成合格的深度综合；当前展示可追溯的证据整理版，不新增无来源机制。")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("机制证据", len(bundle.mechanism_claims))
+    c2.metric("入模证据", int(status.get("evidence_claims_sent") or 0))
+    c3.metric("论文摘要", int(status.get("literature_abstracts_sent") or 0))
+    c4.metric("报告模式", "AI 综合" if report_mode == "ai" else "证据版")
+    st.caption(
+        f"对象：{', '.join(bundle.inputs)} · 模型：{status.get('model_label') or status.get('model') or '未使用'} · "
+        f"证据引用校验：{status.get('evidence_reference_validation') or '未运行'}"
+    )
+    st.subheader("三分钟读懂这个基因")
+    with st.container(border=True):
+        st.write(str(synthesis.get("executive_summary") or "当前没有可用摘要。"))
+        identity = synthesis.get("gene_identity") if isinstance(synthesis.get("gene_identity"), dict) else {}
+        core = synthesis.get("core_function") if isinstance(synthesis.get("core_function"), dict) else {}
+        st.markdown(f"**它是什么**：{identity.get('summary') or '—'}")
+        st.markdown(f"**分子角色**：{identity.get('molecular_role') or '—'}")
+        st.markdown(f"**作用位置**：{identity.get('localization') or '—'}")
+        st.markdown(f"**核心功能**：{core.get('summary') or '—'}")
+
+    st.subheader("核心机制链")
+    chains = synthesis.get("mechanism_chains") if isinstance(synthesis.get("mechanism_chains"), list) else []
+    if chains:
+        for item in chains:
+            if not isinstance(item, dict):
+                continue
+            with st.container(border=True):
+                st.markdown(f"**{item.get('title') or '机制链'}** · {item.get('context') or '未特异场景'}")
+                st.markdown(
+                    f"{item.get('upstream') or '—'} → **{item.get('molecular_event') or '—'}** → "
+                    f"{item.get('downstream') or '—'} → {item.get('phenotype') or '—'}"
+                )
+                st.caption(f"证据：{', '.join(map(str, item.get('evidence_ids') or []))} · 等级：{item.get('confidence') or '—'}")
+    else:
+        st.info("当前证据不足以形成机制链。")
+
+    st.subheader("已知机制 / 本次观察 / AI 假设")
+    known_col, observed_col, hypothesis_col = st.columns(3)
+    with known_col:
+        st.markdown("**已知机制**")
+        for item in synthesis.get("context_branches", []) if isinstance(synthesis.get("context_branches"), list) else []:
+            if isinstance(item, dict):
+                st.markdown(f"- **{item.get('context') or '场景'}**：{item.get('interpretation') or ''} `{'/'.join(map(str, item.get('evidence_ids') or []))}`")
+    with observed_col:
+        st.markdown("**本次观察**")
+        for item in synthesis.get("omics_integration", []) if isinstance(synthesis.get("omics_integration"), list) else []:
+            if isinstance(item, dict):
+                st.markdown(f"- {item.get('observation') or ''}\n\n  {item.get('interpretation') or ''}")
+    with hypothesis_col:
+        st.markdown("**AI 假设**")
+        hypotheses = synthesis.get("testable_hypotheses") if isinstance(synthesis.get("testable_hypotheses"), list) else []
+        if not hypotheses:
+            st.caption("证据版不自动新增假设。")
+        for item in hypotheses:
+            if isinstance(item, dict):
+                st.markdown(f"- **{item.get('hypothesis') or ''}**\n\n  {item.get('rationale') or ''}")
+
+    st.subheader("可检验假设与实验")
+    for index, item in enumerate(synthesis.get("testable_hypotheses", []) if isinstance(synthesis.get("testable_hypotheses"), list) else [], 1):
+        if not isinstance(item, dict):
+            continue
+        with st.expander(f"假设 {index}：{item.get('hypothesis') or '未命名'}", expanded=index == 1):
+            st.markdown(f"**实验**：{item.get('experiment') or '—'}")
+            st.markdown(f"**对照**：{item.get('controls') or '—'}")
+            st.markdown(f"**读出**：{item.get('readouts') or '—'}")
+            st.markdown(f"**判别结果**：{item.get('discriminating_result') or '—'}")
+
+    st.subheader("证据与参考文献")
+    referenced = set(map(str, synthesis.get("references", []))) if isinstance(synthesis.get("references"), list) else set()
+    rows = [row for row in bundle.mechanism_claims if not referenced or str(row.get("evidence_id")) in referenced]
+    if rows:
+        frame = pd.DataFrame(rows)
+        columns = [value for value in ["evidence_id", "evidence_level", "context", "statement", "dois", "source_type", "verification_status"] if value in frame.columns]
+        st.dataframe(frame[columns], width="stretch", hide_index=True)
+    st.caption("统一边界：数据库整理与摘要需回到全文；组学不等于因果；PTM 位点需结合总蛋白和位点占有率。")
+
+
 def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
-    """Render the v1.9.1 six-tab evidence-led result surface."""
-    overview_tab, evidence_tab, expression_tab, sequence_tab, regulation_tab, conclusion_tab = st.tabs(
-        ["总览", "已知证据", "表达", "序列与结构", "调控与变异", "结论与来源"]
+    """Render the v1.9.7 evidence-led result surface."""
+    overview_tab, evidence_tab, expression_tab, sequence_tab, regulation_tab, ai_tab, conclusion_tab = st.tabs(
+        ["总览", "功能与证据", "表达", "序列与结构", "调控与变异", "AI 深度解读", "结论与来源"]
     )
     deep_charts = artifacts.get("deep_charts", {}) if isinstance(artifacts.get("deep_charts", {}), dict) else {}
 
     with overview_tab:
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("输入", len(bundle.inputs))
-        c2.metric("已知证据", len(bundle.genetic_evidence))
+        c2.metric("功能/机制证据", len(bundle.mechanism_claims) or len(bundle.genetic_evidence))
         c3.metric("关联文献", len(bundle.literature_rows))
         c4.metric("有效序列", sum(record.status == "matched" for record in bundle.sequences))
         st.subheader("基因身份与数据完整度")
@@ -1575,7 +1806,7 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
         else:
             st.info("未形成可用的 ID 映射。")
         with st.container(border=True):
-            st.markdown(f"**摘要**　RiceData {len(bundle.ricedata_rows)} 条 · eFP {len(bundle.efp_rows)} 条 · 实验室多组学 {len(bundle.lab_omics_differential)} 条 · 定位预测 {len(bundle.predictions)} 条 · 变异 {len(bundle.variants)} 条")
+            st.markdown(f"**摘要**　RiceData {len(bundle.ricedata_rows)} 条 · eFP {len(bundle.efp_rows)} 条 · 可统计多组学 {len(bundle.lab_omics_differential)} 条 · 论文组学证据 {len(bundle.lab_omics_published_evidence)} 条 · 定位预测 {len(bundle.predictions)} 条 · 变异 {len(bundle.variants)} 条")
             severe = [warning for warning in bundle.warnings if any(token in warning for token in ("assembly", "REF", "失败", "一对多", "不一致"))]
             st.caption(f"可能改变解释的主要警告：{len(severe)} 项。完整信息见“结论与来源”。")
         st.subheader("报告解读摘要")
@@ -1609,6 +1840,11 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
                 "核验状态": reference.get("verification_status", "需全文核验"),
                 "matched_by": reference.get("matched_by", "ricedata_reference_id"),
             })
+        if bundle.mechanism_claims:
+            st.subheader("可追溯功能与机制证据")
+            mechanism_frame = pd.DataFrame(bundle.mechanism_claims)
+            columns = [value for value in ["evidence_id", "evidence_level", "context", "statement", "dois", "verification_status"] if value in mechanism_frame.columns]
+            st.dataframe(mechanism_frame[columns], width="stretch", hide_index=True)
         if evidence_rows:
             st.dataframe(pd.DataFrame(evidence_rows), width="stretch", hide_index=True)
         else:
@@ -1643,11 +1879,13 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
             st.info("本次未选择 eFP，ID 未映射，或外部服务未返回定量表。")
 
         st.divider()
-        st.subheader("实验室已分析多组学")
-        st.caption("跨项目只比较各项目已有log2FC；项目内丰度按原FPKM/TPM/count/归一化定量展示。不同组学原始值不直接比较，灰色表示缺失。")
+        st.subheader("水稻多组学证据")
+        st.caption("主组学区仅包含有生物学重复的可统计数据；论文报告结果单独展示。正log2FC表示treatment/control上调。")
+        st.markdown("#### 可统计组学数据")
         if bundle.lab_omics_differential or bundle.lab_omics_profiles:
+            primary_datasets = [row for row in bundle.lab_omics_datasets if row.get("search_section") == "primary"]
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("数据集", len(bundle.lab_omics_datasets))
+            c1.metric("数据集", len(primary_datasets))
             c2.metric("比较", len({str(row.get('comparison_id')) for row in bundle.lab_omics_differential}))
             c3.metric("差异记录", len(bundle.lab_omics_differential))
             c4.metric("定量记录", len(bundle.lab_omics_profiles))
@@ -1678,13 +1916,38 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
                 st.image(deep_charts[chosen_plot], caption="Within-project abundance pattern; row z-score only inside this dataset")
             with st.expander("完整项目、样本与定量明细"):
                 if bundle.lab_omics_datasets:
-                    st.dataframe(pd.DataFrame(bundle.lab_omics_datasets), width="stretch", hide_index=True)
+                    st.dataframe(pd.DataFrame(primary_datasets), width="stretch", hide_index=True)
                 if bundle.lab_omics_samples:
                     st.dataframe(pd.DataFrame(bundle.lab_omics_samples), width="stretch", hide_index=True)
                 if bundle.lab_omics_profiles:
                     st.dataframe(pd.DataFrame(bundle.lab_omics_profiles), width="stretch", hide_index=True)
         else:
-            st.info("当前基因在首版实验室多组学库中没有合格记录，或数据库尚未解锁。")
+            st.info("当前基因在具有生物学重复的主组学数据中没有命中，或数据库尚未解锁。")
+        st.markdown("#### 已发表论文证据")
+        st.warning("本区结果不进入主热图、候选基因统计评分或自动机制结论；不能据此独立判断统计显著性或因果机制。")
+        if bundle.lab_omics_published_evidence:
+            published_frame = pd.DataFrame(bundle.lab_omics_published_evidence).fillna("【未报告】")
+            published_columns = [
+                column for column in [
+                    "msu_locus", "msu_model", "rap_gene", "dataset_name", "assay", "feature_type",
+                    "description", "ratio", "log2fc", "pvalue", "padj", "direction",
+                    "replicate_note", "evidence_level", "evidence_boundary", "raw_data_availability",
+                    "mapping_status", "mapping_note", "source_file", "source_sheet", "source_row", "source_page",
+                    "dataset_risk_note",
+                ] if column in published_frame.columns
+            ]
+            st.dataframe(published_frame[published_columns], width="stretch", hide_index=True)
+            published_ids = {str(row.get("dataset_id")) for row in bundle.lab_omics_published_evidence}
+            published_context = [row for row in bundle.lab_omics_dataset_context if str(row.get("dataset_id")) in published_ids]
+            with st.expander("论文证据来源、重复结构与分析边界"):
+                st.dataframe(pd.DataFrame(published_context).fillna("【未报告】"), width="stretch", hide_index=True)
+        else:
+            st.info("当前基因未命中已映射的论文证据。")
+        if bundle.lab_omics_consensus_scores:
+            with st.expander("公开RNA-seq跨项目启发式候选评分（非实验验证）"):
+                st.dataframe(pd.DataFrame(bundle.lab_omics_consensus_scores), width="stretch", hide_index=True)
+        with st.expander("完整多组学数据集注册表（13个可统计数据集 + 5个论文证据来源）"):
+            st.dataframe(pd.DataFrame(bundle.lab_omics_dataset_registry).fillna("【未报告】"), width="stretch", hide_index=True)
         for status in bundle.lab_omics_status:
             if status.get("inclusion_status") == "absent":
                 st.info(f"{status.get('display_name')}：暂无合格数据")
@@ -1746,9 +2009,12 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
         st.subheader("单倍型科研解读")
         _render_interpretations(bundle, {"haplotype", "ai_haplotype"})
 
+    with ai_tab:
+        _render_ai_synthesis(bundle)
+
     with conclusion_tab:
         st.subheader("综合科研判断")
-        _render_interpretations(bundle)
+        _render_interpretations(bundle, {"overall", "lab_omics", "haplotype"})
         status = bundle.interpretation_status
         effective = "大模型增强 + 离线规则" if status.get("effective_mode") == MODE_LLM else "离线科研规则"
         provider = str(status.get("provider_label") or "")
@@ -1776,10 +2042,15 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
 
     stem = str(artifacts["stem"])
     st.divider()
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     col1.download_button("下载 Word 报告", artifacts["docx"], file_name=f"{stem}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-    col2.download_button("下载 Excel 数据", artifacts["xlsx"], file_name=f"{stem}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    col3.download_button(f"下载完整 ZIP（{format_bytes(len(artifacts['zip']))}）", artifacts["zip"], file_name=f"{stem}.zip", mime="application/zip", type="primary")
+    ai_docx = artifacts.get("ai_docx")
+    if isinstance(ai_docx, bytes) and ai_docx:
+        col2.download_button("AI 深度解读 Word", ai_docx, file_name=f"{artifacts.get('ai_stem') or stem + '_ai'}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    else:
+        col2.caption("本次无独立 AI 报告")
+    col3.download_button("下载 Excel 数据", artifacts["xlsx"], file_name=f"{stem}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    col4.download_button(f"下载完整 ZIP（{format_bytes(len(artifacts['zip']))}）", artifacts["zip"], file_name=f"{stem}.zip", mime="application/zip", type="primary")
 
 
 @st.fragment(run_every=1.0)
@@ -1933,7 +2204,7 @@ def run() -> None:
     resource_col1, resource_col2, resource_col3 = st.columns(3)
     include_ricedata = resource_col1.checkbox("RiceData 基因信息", value=True)
     include_efp = resource_col2.checkbox("Rice eFP 定量表达谱", value=True)
-    include_lab_omics = resource_col3.checkbox("实验室已分析多组学", value=True)
+    include_lab_omics = resource_col3.checkbox("水稻多组学证据", value=True)
     ricedata_depth_label = st.radio(
         "RiceData 检索深度",
         ["自动：单基因完整 / 批量快速", "快速基础信息", "完整功能信息"],
@@ -1957,16 +2228,18 @@ def run() -> None:
     st.caption(
         "eFP 原始表保留官网行；单基因按 Expression Level 绘制横向图，并将官网 Standard Deviation 字段作为误差线；批量生成基因×组织/处理热图。"
     )
-    with st.expander("实验室多组学范围与解读边界", expanded=True):
+    with st.expander("水稻多组学证据范围与解读边界", expanded=True):
         st.markdown(
             "在当前‘水稻基因一站式分析’内按 **MSU locus** 检索，不增加重复菜单。"
-            "首版包含 mRNA、总蛋白、磷酸化、泛素化及历史芯片；仅纳入同一野生型/感性背景内处理 vs 对照。"
+            "主组学区仅纳入具有可核实生物学重复的处理 vs 对照；论文报告结果进入独立证据区。"
         )
         st.markdown(
             "- 单基因：展示不同病毒、昆虫、组学、时间点和PTM位点明细。\n"
             "- 批量：生成基因 × 处理的已有 log2FC 热图。\n"
             "- 项目内热图：使用已有FPKM、TPM、count或归一化蛋白/PTM定量，只在该数据集内做row z-score。\n"
-            "- 时间列保持原项目顺序；缺失值为灰色；无可核实重复的数据标记为‘描述性结果’。"
+            "- 时间列保持原项目顺序；缺失值为灰色。\n"
+            "- 无可核实生物学重复的旧实验室数据已从生产库移除。\n"
+            "- 论文证据保留原附件、sheet、行号/PDF页码和未报告字段，不与统一重分析结果混用。"
         )
     with st.expander("Rice eFP 详解：APP 怎么获取数据，以及 12 个数据源分别代表什么", expanded=True):
         st.markdown(
@@ -1986,13 +2259,15 @@ def run() -> None:
         st.markdown(f"官方查询入口：[BAR Rice eFP]({EFP_URL})")
 
     st.subheader("结果解读")
-    interpretation_choice = st.radio(
+    _initialize_interpretation_preferences()
+    interpretation_mode = st.radio(
         "选择解读方式",
-        ["科研规则解读（离线，推荐）", "大模型增强解读（可选）"],
+        list(_INTERPRETATION_MODE_LABELS),
+        format_func=lambda value: _INTERPRETATION_MODE_LABELS[value],
+        key="rice_interpretation_mode",
         horizontal=True,
         help="两种方式都会保留证据依据、解读边界与建议实验。大模型失败时自动回退到离线规则。",
     )
-    interpretation_mode = MODE_LLM if interpretation_choice.startswith("大模型") else MODE_RULES
     interpretation_provider = ""
     interpretation_base_url = ""
     interpretation_model = ""
@@ -2003,17 +2278,14 @@ def run() -> None:
     interpretation_codex_ready = True
     interpretation_consent_nonce = int(st.session_state.get("rice_interpretation_consent_nonce", 0))
     if interpretation_mode == MODE_LLM:
-        provider_label = st.radio(
+        interpretation_provider = st.selectbox(
             "大模型来源",
-            [
-                "ChatGPT 账号（Codex，免 API Key，推荐）",
-                "本机 Ollama（数据不出本机）",
-                "OpenAI 兼容云端 API",
-            ],
-            horizontal=True,
+            list(_INTERPRETATION_PROVIDER_LABELS),
+            format_func=lambda value: _INTERPRETATION_PROVIDER_LABELS[value],
+            key="rice_interpretation_provider",
+            help="云端 API Key 只保留在本次 APP 会话中，退出后需要重新输入。",
         )
-        if provider_label.startswith("ChatGPT"):
-            interpretation_provider = PROVIDER_CODEX_CHATGPT
+        if interpretation_provider == PROVIDER_CODEX_CHATGPT:
             codex_model_values = tuple(value for value, _label in CODEX_MODEL_OPTIONS)
             model_state_key = "rice_codex_model"
             if st.session_state.get(model_state_key, CODEX_ACCOUNT_MODEL) not in codex_model_values:
@@ -2084,7 +2356,7 @@ def run() -> None:
             interpretation_codex_ready = account_ready
             st.caption("验证会发送一条不含科研数据的最小测试消息，并消耗少量 ChatGPT/Codex 额度。")
             interpretation_cloud_consent = st.checkbox(
-                "我同意将去标识化的结构化摘要通过当前 ChatGPT 账号发送给 OpenAI，并消耗 ChatGPT/Codex 使用额度",
+                "我同意将去标识化的报告结构化证据通过当前 ChatGPT 账号发送给 OpenAI，并消耗 ChatGPT/Codex 使用额度",
                 value=False,
                 key=f"rice_codex_consent_{interpretation_consent_nonce}",
             )
@@ -2092,20 +2364,41 @@ def run() -> None:
                 "此入口调用 ChatGPT 账号登录的 Codex CLI，不直接操控 ChatGPT Work 窗口；"
                 "不会创建或保留 Codex 任务记录。"
             )
-        else:
-            interpretation_provider = PROVIDER_OLLAMA if provider_label.startswith("本机") else PROVIDER_OPENAI_COMPATIBLE
-            default_url = "http://127.0.0.1:11434" if interpretation_provider == PROVIDER_OLLAMA else "https://api.openai.com/v1"
-            default_model = "qwen2.5:14b" if interpretation_provider == PROVIDER_OLLAMA else ""
-            interpretation_base_url = st.text_input("模型服务地址", value=default_url)
-            interpretation_model = st.text_input("模型名称", value=default_model, placeholder="例：qwen2.5:14b 或 gpt-4.1-mini")
-        if interpretation_provider == PROVIDER_OPENAI_COMPATIBLE:
-            interpretation_api_key = st.text_input("API Key（仅用于本次请求，不写入报告）", type="password")
-            interpretation_cloud_consent = st.checkbox(
-                "我同意将去标识化的结构化摘要发送到上述云端 API",
-                value=False,
-                key=f"rice_api_consent_{interpretation_consent_nonce}",
+        elif interpretation_provider == PROVIDER_OLLAMA:
+            interpretation_base_url = st.text_input(
+                "模型服务地址",
+                key="rice_ollama_base_url",
             )
-        if interpretation_provider in {PROVIDER_OLLAMA, PROVIDER_OPENAI_COMPATIBLE}:
+            interpretation_model = st.text_input(
+                "模型名称",
+                key="rice_ollama_model",
+                placeholder="例：qwen2.5:14b",
+            )
+        elif interpretation_provider in CLOUD_API_PROVIDERS:
+            preset = cloud_provider(interpretation_provider)
+            base_key, model_key = cloud_preference_keys(interpretation_provider)
+            interpretation_base_url = st.text_input(
+                "API 服务地址",
+                key=f"rice_{base_key}",
+                help="已预填官方 OpenAI-compatible 地址；私有部署或区域端点可自行修改。",
+            )
+            interpretation_model = st.text_input(
+                "模型名称 / 接入点 ID",
+                key=f"rice_{model_key}",
+                placeholder=preset.model_placeholder,
+            )
+            interpretation_api_key = st.text_input(
+                "API Key（仅用于本次请求，不保存、不写入报告）",
+                type="password",
+                key=f"rice_{preset.preference_prefix}_api_key",
+            )
+            interpretation_cloud_consent = st.checkbox(
+                f"我同意将去标识化的报告结构化证据发送到 {preset.label}",
+                value=False,
+                key=f"rice_{preset.preference_prefix}_api_consent_{interpretation_consent_nonce}",
+            )
+            st.caption(f"[查看 {preset.label} 接口文档]({preset.api_docs_url})")
+        if interpretation_provider == PROVIDER_OLLAMA or interpretation_provider in CLOUD_API_PROVIDERS:
             api_fingerprint = _connection_fingerprint(
                 interpretation_provider,
                 interpretation_base_url,
@@ -2127,7 +2420,18 @@ def run() -> None:
                         _remember_connection_result(api_fingerprint, False, str(exc))
             _render_connection_result(api_fingerprint)
             st.caption("验证只发送固定文本 Reply with OK，不包含科研数据。")
-        st.caption("只发送结构化统计摘要；不发送原始序列、样本名、密码、令牌、密钥和源文件路径。")
+        st.caption("发送 Word、Excel 和 ZIP 中可解释内容的同源结构化证据；不发送二进制文件、原始序列、图片、样本名、密码、令牌、密钥和本地路径。")
+    try:
+        saved_interpretation_preferences = _persist_interpretation_preferences()
+        # On restart this is already launched from main.py.  Calling it here is
+        # also safe and automatically verifies a newly selected configuration.
+        start_model_connection_test(
+            saved_interpretation_preferences,
+            api_key=interpretation_api_key,
+            background=True,
+        )
+    except OSError as exc:
+        st.warning(f"模型选择暂时无法保存：{exc}")
     project_name = st.text_input(
         "项目名称（可选）",
         placeholder="例：OsPTM 候选基因一站式分析",
@@ -2165,10 +2469,10 @@ def run() -> None:
             validation_error = "请填写大模型服务地址。"
         elif interpretation_mode == MODE_LLM and interpretation_provider != PROVIDER_CODEX_CHATGPT and not interpretation_model.strip():
             validation_error = "请填写大模型名称。"
-        elif interpretation_provider == PROVIDER_OPENAI_COMPATIBLE and not interpretation_api_key.strip():
+        elif interpretation_provider in CLOUD_API_PROVIDERS and not interpretation_api_key.strip():
             validation_error = "使用云端 API 时请填写 API Key。"
-        elif interpretation_provider in {PROVIDER_CODEX_CHATGPT, PROVIDER_OPENAI_COMPATIBLE} and not interpretation_cloud_consent:
-            validation_error = "请先确认同意发送去标识化结构化摘要，或改用离线规则/本机 Ollama。"
+        elif (interpretation_provider == PROVIDER_CODEX_CHATGPT or interpretation_provider in CLOUD_API_PROVIDERS) and not interpretation_cloud_consent:
+            validation_error = "请先确认同意发送去标识化报告结构化证据，或改用离线规则/本机 Ollama。"
         elif not selected_types and not selected_predictors and not selected_deep_analyses and not include_ricedata and not include_efp and not include_lab_omics:
             validation_error = "请至少选择一种序列、预测工具或基因信息模块。"
 

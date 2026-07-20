@@ -87,11 +87,91 @@ CODEX_RESPONSE_SCHEMA: dict[str, object] = {
         "multiomics_interpretation",
         "haplotype_interpretation",
         "integrated_hypotheses",
+        "gene_identity",
+        "core_function",
+        "mechanism_chains",
+        "context_branches",
+        "omics_integration",
+        "testable_hypotheses",
+        "knowledge_gaps",
+        "references",
     ],
     "properties": {
         "executive_summary": {"type": "string"},
         "multiomics_interpretation": {"type": "string"},
         "haplotype_interpretation": {"type": "string"},
+        "gene_identity": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["summary", "molecular_role", "localization", "evidence_ids"],
+            "properties": {
+                "summary": {"type": "string"},
+                "molecular_role": {"type": "string"},
+                "localization": {"type": "string"},
+                "evidence_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "core_function": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["summary", "evidence_ids"],
+            "properties": {
+                "summary": {"type": "string"},
+                "evidence_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        "mechanism_chains": {
+            "type": "array", "maxItems": 5,
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["title", "context", "upstream", "molecular_event", "downstream", "phenotype", "evidence_ids", "confidence"],
+                "properties": {
+                    "title": {"type": "string"}, "context": {"type": "string"},
+                    "upstream": {"type": "string"}, "molecular_event": {"type": "string"},
+                    "downstream": {"type": "string"}, "phenotype": {"type": "string"},
+                    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                    "confidence": {"type": "string"},
+                },
+            },
+        },
+        "context_branches": {
+            "type": "array", "maxItems": 5,
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["context", "interpretation", "evidence_ids"],
+                "properties": {
+                    "context": {"type": "string"}, "interpretation": {"type": "string"},
+                    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
+        "omics_integration": {
+            "type": "array", "maxItems": 8,
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["observation", "interpretation", "status", "evidence_ids"],
+                "properties": {
+                    "observation": {"type": "string"}, "interpretation": {"type": "string"},
+                    "status": {"type": "string"},
+                    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
+        "testable_hypotheses": {
+            "type": "array", "maxItems": 5,
+            "items": {
+                "type": "object", "additionalProperties": False,
+                "required": ["hypothesis", "rationale", "experiment", "controls", "readouts", "discriminating_result", "evidence_ids"],
+                "properties": {
+                    "hypothesis": {"type": "string"}, "rationale": {"type": "string"},
+                    "experiment": {"type": "string"}, "controls": {"type": "string"},
+                    "readouts": {"type": "string"}, "discriminating_result": {"type": "string"},
+                    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
+        "knowledge_gaps": {"type": "array", "items": {"type": "string"}, "maxItems": 8},
+        "references": {"type": "array", "items": {"type": "string"}, "maxItems": 40},
         "integrated_hypotheses": {
             "type": "array",
             "maxItems": 5,
@@ -164,7 +244,9 @@ def probe_codex_connection(
         (
             "这是 My Bio Tools 的连接性测试，不包含科研数据。请仅返回符合输出结构的最小 JSON："
             "executive_summary 写 ok，multiomics_interpretation 与 haplotype_interpretation 留空字符串，"
-            "integrated_hypotheses 返回空数组。"
+            "integrated_hypotheses 返回空数组；gene_identity 返回 summary/molecular_role/localization 空字符串和 evidence_ids 空数组；"
+            "core_function 返回 summary 空字符串和 evidence_ids 空数组；mechanism_chains、context_branches、omics_integration、"
+            "testable_hypotheses、knowledge_gaps、references 均返回空数组。"
         ),
         model=model,
         reasoning_effort=reasoning_effort,
@@ -446,6 +528,12 @@ def _validated_payload(text: str) -> dict[str, object]:
     hypotheses = payload.get("integrated_hypotheses")
     if not isinstance(hypotheses, list) or any(not isinstance(item, dict) for item in hypotheses):
         raise CodexClientError("invalid_output", "ChatGPT/Codex 候选假设格式不正确。")
+    for key in ("gene_identity", "core_function"):
+        if not isinstance(payload.get(key), dict):
+            raise CodexClientError("invalid_output", f"ChatGPT/Codex 返回结果缺少深度解读字段：{key}。")
+    for key in ("mechanism_chains", "context_branches", "omics_integration", "testable_hypotheses", "knowledge_gaps", "references"):
+        if not isinstance(payload.get(key), list):
+            raise CodexClientError("invalid_output", f"ChatGPT/Codex 返回结果缺少深度解读字段：{key}。")
     return payload
 
 

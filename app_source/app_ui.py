@@ -7,15 +7,39 @@ import html
 import streamlit as st
 
 
-APP_VERSION = "1.9.1"
+APP_VERSION = "1.9.7"
 
 
-def apply_app_style() -> None:
+def apply_app_style(appearance_mode: str = "system") -> None:
     """Apply a compact scientific desktop theme to the Streamlit surface."""
-    st.markdown(
-        """
+    dark_theme = """
+        :root {
+            color-scheme: dark;
+            --bio-ink: #e7edf5;
+            --bio-muted: #9ca9ba;
+            --bio-line: rgba(231, 237, 245, 0.13);
+            --bio-card: rgba(30, 41, 59, 0.88);
+            --bio-bg: #101722;
+            --bio-glow: rgba(20, 184, 166, 0.09);
+            --bio-sidebar: rgba(17, 24, 39, 0.97);
+            --bio-input: #1b2534;
+            --bio-guide: rgba(30, 41, 59, 0.72);
+            --bio-shadow: rgba(0, 0, 0, 0.18);
+            --bio-link: #7db4ff;
+        }
+    """
+    normalized_mode = appearance_mode if appearance_mode in {"system", "light", "dark"} else "system"
+    if normalized_mode == "dark":
+        theme_override = dark_theme
+    elif normalized_mode == "system":
+        theme_override = f"@media (prefers-color-scheme: dark) {{{dark_theme}}}"
+    else:
+        theme_override = ""
+
+    style = """
         <style>
         :root {
+            color-scheme: light;
             --bio-ink: #172033;
             --bio-muted: #667085;
             --bio-line: rgba(23, 32, 51, 0.10);
@@ -23,12 +47,20 @@ def apply_app_style() -> None:
             --bio-accent-soft: rgba(15, 118, 110, 0.10);
             --bio-blue-soft: rgba(29, 78, 216, 0.08);
             --bio-card: rgba(255, 255, 255, 0.86);
+            --bio-bg: #f7f9fc;
+            --bio-glow: rgba(15, 118, 110, 0.07);
+            --bio-sidebar: rgba(241, 245, 249, 0.94);
+            --bio-input: #ffffff;
+            --bio-guide: rgba(255, 255, 255, 0.58);
+            --bio-shadow: rgba(23, 32, 51, 0.04);
+            --bio-link: #1d4ed8;
         }
 
         [data-testid="stAppViewContainer"] {
             background:
-                radial-gradient(circle at 92% 2%, rgba(15, 118, 110, 0.07), transparent 24rem),
-                #f7f9fc;
+                radial-gradient(circle at 92% 2%, var(--bio-glow), transparent 24rem),
+                var(--bio-bg);
+            color: var(--bio-ink);
         }
         [data-testid="stHeader"], [data-testid="stToolbar"], #MainMenu, footer {
             display: none !important;
@@ -40,7 +72,8 @@ def apply_app_style() -> None:
         }
         [data-testid="stSidebar"] {
             border-right: 1px solid var(--bio-line);
-            background: rgba(241, 245, 249, 0.94);
+            background: var(--bio-sidebar);
+            color: var(--bio-ink);
         }
         [data-testid="stSidebar"] > div:first-child {
             padding-top: 1.35rem;
@@ -55,25 +88,44 @@ def apply_app_style() -> None:
         }
         h1 { font-size: 2.05rem !important; }
         h2 { font-size: 1.35rem !important; }
-        p, label, .stMarkdown { color: var(--bio-ink); }
+        p, label, .stMarkdown, [data-testid="stCaptionContainer"] {
+            color: var(--bio-ink);
+        }
         div[data-testid="stMetric"] {
             background: var(--bio-card);
             border: 1px solid var(--bio-line);
             border-radius: 14px;
             padding: 0.85rem 1rem;
-            box-shadow: 0 8px 24px rgba(23, 32, 51, 0.04);
+            box-shadow: 0 8px 24px var(--bio-shadow);
         }
         div[data-testid="stMetricLabel"] { color: var(--bio-muted); }
         div[data-testid="stDataFrame"], div[data-testid="stTable"] {
             border: 1px solid var(--bio-line);
             border-radius: 12px;
             overflow: hidden;
+            background: var(--bio-card);
         }
         div[data-testid="stFileUploader"] section,
         div[data-testid="stTextArea"] textarea,
         div[data-testid="stTextInput"] input,
-        div[data-baseweb="select"] > div {
+        div[data-testid="stNumberInput"] input,
+        div[data-baseweb="select"] > div,
+        [data-baseweb="popover"],
+        [role="listbox"] {
             border-radius: 10px;
+            background-color: var(--bio-input) !important;
+            color: var(--bio-ink) !important;
+            border-color: var(--bio-line) !important;
+        }
+        div[data-testid="stTextArea"] textarea,
+        div[data-testid="stTextInput"] input,
+        div[data-testid="stNumberInput"] input {
+            -webkit-text-fill-color: var(--bio-ink) !important;
+        }
+        [data-testid="stExpander"], [data-testid="stFileUploader"] section,
+        [data-baseweb="tab-list"] {
+            background-color: var(--bio-card);
+            border-color: var(--bio-line) !important;
         }
         .stButton > button, .stDownloadButton > button {
             border-radius: 9px;
@@ -124,7 +176,7 @@ def apply_app_style() -> None:
             border: 1px solid var(--bio-line);
             border-radius: 15px;
             padding: 1.05rem 1.1rem;
-            box-shadow: 0 8px 24px rgba(23, 32, 51, 0.04);
+            box-shadow: 0 8px 24px var(--bio-shadow);
         }
         .bio-card-icon { font-size: 1.35rem; margin-bottom: 0.45rem; }
         .bio-card-title { font-weight: 700; color: var(--bio-ink); }
@@ -159,7 +211,7 @@ def apply_app_style() -> None:
             line-height: 1.55;
         }
         .bio-resource-label { color: var(--bio-muted); font-weight: 650; }
-        .bio-resource a { color: #1d4ed8; overflow-wrap: anywhere; }
+        .bio-resource a { color: var(--bio-link); overflow-wrap: anywhere; }
         .bio-tool-section { margin: 1.35rem 0 0.55rem; }
         .bio-tool-grid {
             display: grid;
@@ -190,9 +242,9 @@ def apply_app_style() -> None:
             font-size: 0.7rem;
             font-weight: 700;
         }
-        .bio-tool-mode.online { color: #1d4ed8; background: var(--bio-blue-soft); }
+        .bio-tool-mode.online { color: var(--bio-link); background: var(--bio-blue-soft); }
         .bio-tool-source { font-size: 0.77rem; margin-top: 0.4rem; }
-        .bio-tool-source a { color: #1d4ed8; overflow-wrap: anywhere; }
+        .bio-tool-source a { color: var(--bio-link); overflow-wrap: anywhere; }
         .bio-guide-grid {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -200,7 +252,7 @@ def apply_app_style() -> None:
             margin: 0.15rem 0 0.35rem;
         }
         .bio-guide-item {
-            background: rgba(255, 255, 255, 0.58);
+            background: var(--bio-guide);
             border: 1px solid var(--bio-line);
             border-radius: 11px;
             padding: 0.78rem 0.86rem;
@@ -223,20 +275,11 @@ def apply_app_style() -> None:
             .bio-guide-wide { grid-column: auto; }
             [data-testid="stMainBlockContainer"] { padding-left: 1rem; padding-right: 1rem; }
         }
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bio-ink: #e7edf5;
-                --bio-muted: #9ca9ba;
-                --bio-line: rgba(231, 237, 245, 0.12);
-                --bio-card: rgba(30, 41, 59, 0.80);
-            }
-            [data-testid="stAppViewContainer"] {
-                background: radial-gradient(circle at 92% 2%, rgba(20, 184, 166, 0.08), transparent 24rem), #101722;
-            }
-            [data-testid="stSidebar"] { background: rgba(17, 24, 39, 0.96); }
-        }
+        __BIO_THEME_OVERRIDE__
         </style>
-        """,
+    """.replace("__BIO_THEME_OVERRIDE__", theme_override)
+    st.markdown(
+        style,
         unsafe_allow_html=True,
     )
 

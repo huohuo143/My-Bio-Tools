@@ -30,7 +30,7 @@ from rice_gene_core import (
     sequence_records_to_fasta,
 )
 from rice_efp import EFP_DATA_SOURCES, EFP_SOURCE_GLOSSARY, EFP_GUIDE_URL, EFP_URL, efp_source_display_label, expression_top_rows
-from report_interpretation import build_rule_interpretations
+from report_interpretation import build_evidence_synthesis, build_rule_interpretations
 
 
 # Use the actual macOS/PostScript family name so Word and LibreOffice resolve
@@ -895,7 +895,7 @@ def build_word_report_legacy(
 
     doc.add_heading("13. 科研判断卡", level=1)
     cards = [
-        ("数据库已知证据", f"RiceData/人工导入遗传证据 {len(bundle.genetic_evidence)} 条。"),
+        ("数据库已知证据", f"可追溯功能/机制证据 {len(bundle.mechanism_claims)} 条；RiceData/人工导入遗传证据 {len(bundle.genetic_evidence)} 条。"),
         ("计算支持", f"结构域 {len(bundle.protein_domains)}，TFBS {len(bundle.promoter_tfbs)}，miRNA 靶点 {len(bundle.mirna_targets)} 条。"),
         ("证据冲突/缺口", "请核对外部服务警告、REF/assembly 冲突以及文献全文。"),
         ("建议验证方向", "优先围绕高置信结构域/位点、近 TSS motif、功能变异和有文献线索的互作进行实验。"),
@@ -954,7 +954,7 @@ def build_word_report(
     prediction_charts: dict[str, bytes] | None = None,
     deep_charts: dict[str, bytes] | None = None,
 ) -> bytes:
-    """Build the v1.9.1 evidence-led report with seven coherent chapters."""
+    """Build the v1.9.7 evidence-led report with seven coherent chapters."""
     doc = Document()
     _configure_styles(doc)
     section = doc.sections[0]
@@ -967,7 +967,7 @@ def build_word_report(
     section.header_distance = Inches(0.492)
     section.footer_distance = Inches(0.492)
     header = section.header.paragraphs[0]
-    header.text = "My Bio Tools v1.9.1 · 水稻基因一站式分析"
+    header.text = "My Bio Tools v1.9.7 · 水稻基因一站式分析"
     _format_paragraph_runs(header, size=9, color=MUTED)
     _add_page_number(section.footer.paragraphs[0])
 
@@ -994,7 +994,7 @@ def build_word_report(
     _start_chapter(doc, "1", "基因概览与 ID 映射", "先确认输入基因的统一身份、RAP/MSU/Transcript 对应关系、GeneSymbol、assembly 和数据完整度。")
     matched_sequences = sum(record.status == "matched" for record in bundle.sequences)
     serious_warnings = [warning for warning in bundle.warnings if any(token in warning for token in ("assembly", "REF", "失败", "一对多", "不一致"))]
-    _add_callout(doc, "关键结论", f"本次解析 {len(bundle.inputs)} 个输入，获得 {len(bundle.genetic_evidence)} 条遗传/功能证据、{len(bundle.literature_rows)} 篇文献、{len(bundle.efp_rows)} 条表达记录和 {matched_sequences} 条有效序列；需要优先注意 {len(serious_warnings)} 项可能改变解释的警告。")
+    _add_callout(doc, "关键结论", f"本次解析 {len(bundle.inputs)} 个输入，获得 {len(bundle.mechanism_claims)} 条可追溯功能/机制证据、{len(bundle.genetic_evidence)} 条遗传证据、{len(bundle.literature_rows)} 篇文献、{len(bundle.efp_rows)} 条表达记录和 {matched_sequences} 条有效序列；需要优先注意 {len(serious_warnings)} 项可能改变解释的警告。")
     identity_rows = []
     for mapping in bundle.mapping_rows or [{"input_id": value, "status": "not_resolved"} for value in bundle.inputs]:
         rice = next((row for row in bundle.ricedata_rows if str(row.get("RAP_Locus") or "").casefold() == str(mapping.get("resolved_rap_gene") or "").casefold()), {})
@@ -1010,7 +1010,12 @@ def build_word_report(
 
     _start_chapter(doc, "2", "已知功能、突变体与关联文献", "把数据库功能描述、突变体/定位证据及其支持论文放在同一处，直接展示证据—文献对应关系。")
     linked_count = sum(bool(row.get("linked_dois")) for row in bundle.genetic_evidence)
-    _add_callout(doc, "关键结论", f"共整理 {len(bundle.genetic_evidence)} 条遗传或功能证据，其中 {linked_count} 条已映射到 DOI；RiceData 另关联 {len(bundle.ricedata_references)} 篇论文。直接支持与仅关联文献分开标记。")
+    _add_callout(doc, "关键结论", f"共整理 {len(bundle.mechanism_claims)} 条可追溯功能/机制证据和 {len(bundle.genetic_evidence)} 条遗传或功能证据，其中 {linked_count} 条遗传证据已映射到 DOI；RiceData 关联 {len(bundle.ricedata_references)} 篇论文。")
+    mechanism_rows = [{
+        "id": row.get("evidence_id"), "level": row.get("evidence_level"),
+        "context": row.get("context"), "statement": _compact_text(row.get("statement"), 120), "doi": row.get("dois"),
+    } for row in bundle.mechanism_claims[:12]]
+    _add_table_or_status(doc, mechanism_rows, [("id", "ID"), ("level", "证据等级"), ("context", "场景"), ("statement", "功能/机制摘要"), ("doi", "DOI")], [650, 1300, 1350, 4300, 1760], "本次未提取到可追溯功能或机制证据。")
     evidence_rows = _evidence_reference_rows(bundle)
     _add_table_or_status(
         doc,
@@ -1031,15 +1036,34 @@ def build_word_report(
     _add_table_or_status(doc, top_rows[:18], [("msu_locus", "MSU locus"), ("data_source_label", "数据源"), ("rank", "Rank"), ("tissue", "组织/处理"), ("expression_level", "Value"), ("standard_deviation", "SD")], [1800, 1800, 900, 2600, 1260, 1000], "本次没有可用的 eFP 定量记录。")
     _add_callout(doc, "注意事项", "RMA、MAS5 intensity 与官网未标明单位的 Expression Level 不能跨数据源比较。部分汇总型数据源的 SD 字段为 0，不代表没有细胞间或生物学变异；12 个数据源的来源、重复结构与完整边界见附录和 Excel。", fill=CAUTION_FILL)
 
-    doc.add_heading("实验室已分析多组学", level=2)
+    doc.add_heading("水稻多组学证据", level=2)
+    primary_datasets = [row for row in bundle.lab_omics_dataset_context if row.get("search_section") == "primary"]
+    published_datasets = [row for row in bundle.lab_omics_dataset_context if row.get("search_section") == "published_evidence"]
     _add_callout(
         doc,
-        "组学覆盖",
-        f"命中 {len(bundle.lab_omics_datasets)} 个数据集、{len(bundle.lab_omics_differential)} 条差异记录和 {len(bundle.lab_omics_profiles)} 条项目内定量记录。主键为去model后缀的MSU locus；MSU model、RAP gene/model和原始ID逐条保留。",
+        "可统计组学覆盖",
+        f"命中 {len(primary_datasets)} 个具有生物学重复的数据集、{len(bundle.lab_omics_differential)} 条差异记录和 {len(bundle.lab_omics_profiles)} 条项目内定量记录。主键为去model后缀的MSU locus；MSU model、RAP gene/model和原始ID逐条保留。",
     )
     lab_charts = dict(deep_charts or {})
     if not _add_first_png(doc, lab_charts, ("lab_omics/heatmap_cross_project_log2fc",), "3.2", "Wu Lab analysed multi-omics treatment-response heatmap"):
-        _add_callout(doc, "多组学主图状态", "当前基因在首版实验室多组学库中没有合格记录，或登录授权尚未解锁数据库。", fill=CAUTION_FILL)
+        _add_callout(doc, "多组学主图状态", "当前基因未命中具有生物学重复的主组学数据，或登录授权尚未解锁数据库。", fill=CAUTION_FILL)
+    context_rows = []
+    for row in primary_datasets:
+        context_rows.append({
+            "dataset": _compact_text(row.get("display_name"), 30),
+            "background": row.get("host_background") or "【未报告】",
+            "treatment": row.get("treatment") or "【未报告】",
+            "replicates": row.get("replicate_note") or "【未报告】",
+            "origin": _compact_text(row.get("analysis_origin"), 34),
+            "qc": _compact_text(row.get("qc_summary"), 34),
+        })
+    _add_table_or_status(
+        doc, context_rows,
+        [("dataset", "Dataset"), ("background", "Background"), ("treatment", "Treatment"),
+         ("replicates", "Replicates"), ("origin", "Analysis origin"), ("qc", "QC")],
+        [1900, 1300, 1300, 1500, 2500, 2260],
+        "本次没有命中可统计组学数据集。",
+    )
     lab_rows = []
     for row in bundle.lab_omics_differential[:24]:
         lab_rows.append({
@@ -1055,9 +1079,34 @@ def build_word_report(
         lab_rows,
         [("msu_locus", "MSU locus"), ("dataset", "Dataset"), ("assay", "Assay"), ("comparison", "Comparison"), ("log2fc", "log2FC"), ("note", "Repeat")],
         [1700, 2100, 1200, 2100, 900, 1360],
-        "本次没有实验室多组学差异记录。",
+        "本次没有具有生物学重复的多组学差异记录。",
     )
-    _add_callout(doc, "多组学注意事项", "跨项目只使用各源分析表已有log2FC；项目内热图使用已有FPKM、TPM、count或归一化蛋白/PTM定量。不同组学的原始值不直接比较；缺失值为灰色；无可核实重复的数据只作描述性结果。", fill=CAUTION_FILL)
+    _add_callout(doc, "可统计组学注意事项", "主组学区仅包含可核实生物学重复的数据。跨项目只使用各项目自身log2FC；不同品种、时间、处理或定量单位不合并为单一效应量。正log2FC表示treatment/control上调。", fill=CAUTION_FILL)
+    doc.add_heading("已发表论文证据", level=3)
+    _add_callout(
+        doc, "证据边界",
+        f"命中 {len(published_datasets)} 个论文来源、{len(bundle.lab_omics_published_evidence)} 条基因证据。这些结果不进入主热图、候选基因统计评分或自动机制结论；不能据此独立判断统计显著性或因果机制。",
+        fill=CAUTION_FILL,
+    )
+    published_rows = []
+    for row in bundle.lab_omics_published_evidence[:30]:
+        published_rows.append({
+            "locus": row.get("msu_locus") or "【未报告】",
+            "dataset": _compact_text(row.get("dataset_name"), 28),
+            "assay": row.get("assay") or "【未报告】",
+            "effect": row.get("log2fc") if row.get("log2fc") is not None else (row.get("ratio") if row.get("ratio") is not None else "【未报告】"),
+            "statistics": row.get("padj") if row.get("padj") is not None else (row.get("pvalue") if row.get("pvalue") is not None else "【未报告】"),
+            "boundary": _compact_text(row.get("evidence_boundary") or row.get("dataset_risk_note"), 46),
+            "source": _compact_text(" / ".join(str(value) for value in [row.get("source_file"), row.get("source_sheet"), row.get("source_row") or row.get("source_page")] if value), 42),
+        })
+    _add_table_or_status(
+        doc, published_rows,
+        [("locus", "MSU locus"), ("dataset", "Dataset"), ("assay", "Assay"),
+         ("effect", "Reported effect"), ("statistics", "Reported P"),
+         ("boundary", "Evidence boundary"), ("source", "Source locator")],
+        [1400, 1800, 1100, 1200, 1200, 2700, 2360],
+        "本次没有命中已映射的论文证据。",
+    )
     doc.add_heading("多组学科研解读", level=2)
     _add_interpretation_blocks(doc, bundle, {"lab_omics", "ai_lab_omics"})
 
@@ -1130,14 +1179,16 @@ def build_word_report(
     _start_chapter(doc, "6", "综合科研判断与验证优先级", "把证据等级、冲突、关键缺口和实验优先级集中归纳，并回链到前述章节。")
     conflict_text = "；".join(serious_warnings[:4]) or "未记录会直接改变结论的 assembly/REF/映射冲突。"
     _add_key_value_table(doc, [
-        ("已有证据", f"第2章：数据库/人工遗传证据 {len(bundle.genetic_evidence)} 条；关联文献 {len(bundle.literature_rows)} 篇。"),
+        ("已有证据", f"第2章：可追溯功能/机制证据 {len(bundle.mechanism_claims)} 条；数据库/人工遗传证据 {len(bundle.genetic_evidence)} 条；关联文献 {len(bundle.literature_rows)} 篇。"),
         ("计算支持", f"第3-5章：表达记录 {len(bundle.efp_rows)}，结构域 {len(bundle.protein_domains)}，TFBS {len(bundle.promoter_tfbs)}，变异 {len(bundle.variants)}。"),
         ("证据冲突", conflict_text),
         ("关键缺口", "优先补齐未核验全文、缺失实验定位/互作、缺少功能互补或等位基因材料，以及无样本 GT 时的单倍型证据。"),
         ("推荐实验", "先验证与直接文献证据、表达场景和结构/变异线索同时一致的假设；随后开展遗传互补、亚细胞定位、酶活/互作及目标处理下表型验证。"),
     ])
     _add_callout(doc, "证据分级", "已有数据库/文献证据 ≠ 计算预测；计算支持 ≠ 因果结论；合理推测必须由明确实验验证。所有建议仅由本报告前述记录汇总，不新增无来源机制。", fill=CAUTION_FILL)
-    _add_interpretation_blocks(doc, bundle, {"overall", "ai_overall", "ai_integrated"})
+    _add_interpretation_blocks(doc, bundle, {"overall"})
+    if bundle.interpretation_status.get("requested_mode") == "llm":
+        _add_callout(doc, "AI 深度报告", "完整机制链、场景分支、组学整合和可检验实验已单独生成为 AI 深度功能与机制解读报告。")
 
     _start_chapter(doc, "7", "方法、来源与警告", "集中记录数据库版本、检索日期、参数、失败服务和 assembly 边界，供复现与审阅。")
     _add_callout(doc, "关键结论", f"共记录 {len(bundle.sources)} 个数据/服务来源和 {len(bundle.warnings)} 条警告。一般警告集中在本章；正文仅保留会改变解释的边界提示。")
@@ -1210,6 +1261,132 @@ def build_word_report(
     return output.getvalue()
 
 
+def build_ai_interpretation_word_report(bundle: AnalysisBundle) -> bytes:
+    """Build the standalone AI/evidence mechanism report from structured synthesis."""
+    synthesis = bundle.ai_synthesis or {}
+    mode = str(synthesis.get("report_mode") or bundle.interpretation_status.get("ai_report_mode") or "evidence_fallback")
+    is_ai = mode == "ai"
+    doc = Document()
+    _configure_styles(doc)
+    section = doc.sections[0]
+    section.page_width = Inches(8.5)
+    section.page_height = Inches(11)
+    section.top_margin = Inches(1)
+    section.bottom_margin = Inches(1)
+    section.left_margin = Inches(1)
+    section.right_margin = Inches(1)
+    header = section.header.paragraphs[0]
+    header.text = "My Bio Tools v1.9.7 · AI 深度机制解读"
+    _format_paragraph_runs(header, size=9, color=MUTED)
+    _add_page_number(section.footer.paragraphs[0])
+
+    title = doc.add_paragraph(style="Title")
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title.add_run("AI 深度功能与机制解读报告" if is_ai else "深度功能证据整理报告")
+    subtitle = doc.add_paragraph()
+    subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    subtitle.add_run("基因身份 → 核心功能 → 机制链 → 组学整合 → 可验证实验")
+    _format_paragraph_runs(subtitle, size=10.5, color=MUTED)
+    status = bundle.interpretation_status
+    _add_key_value_table(doc, [
+        ("分析对象", ", ".join(bundle.inputs)),
+        ("报告模式", "AI 深度综合" if is_ai else "证据整理回退（未完成 AI 综合）"),
+        ("模型", str(status.get("model_label") or status.get("model") or "未使用")),
+        ("机制证据", f"{len(bundle.mechanism_claims)} 条"),
+        ("入模证据", f"{status.get('evidence_claims_sent', 0)} 条；截断 {status.get('evidence_claims_omitted', 0)} 条"),
+        ("生成时间", bundle.generated_at),
+    ])
+    if not is_ai:
+        _add_callout(doc, "生成状态", "AI 调用未成功或未返回合格结果；以下仅整理本次可追溯证据，不新增无来源机制。", fill=CAUTION_FILL)
+
+    doc.add_heading("执行摘要", level=1)
+    _add_callout(doc, "三分钟读懂", str(synthesis.get("executive_summary") or "当前无可用综合摘要。"))
+
+    identity = synthesis.get("gene_identity") if isinstance(synthesis.get("gene_identity"), dict) else {}
+    core = synthesis.get("core_function") if isinstance(synthesis.get("core_function"), dict) else {}
+    doc.add_heading("1. 基因身份与核心功能", level=1)
+    _add_key_value_table(doc, [
+        ("它是什么", str(identity.get("summary") or "—")),
+        ("分子角色", str(identity.get("molecular_role") or "—")),
+        ("作用位置", str(identity.get("localization") or "—")),
+        ("核心功能", str(core.get("summary") or "—")),
+        ("证据编号", ", ".join([*map(str, identity.get("evidence_ids") or []), *map(str, core.get("evidence_ids") or [])]) or "—"),
+    ])
+
+    doc.add_heading("2. 核心机制网络", level=1)
+    chains = synthesis.get("mechanism_chains") if isinstance(synthesis.get("mechanism_chains"), list) else []
+    chain_rows = []
+    for item in chains:
+        if not isinstance(item, dict):
+            continue
+        chain_rows.append({
+            "title": item.get("title"), "context": item.get("context"),
+            "chain": " → ".join(str(item.get(key) or "—") for key in ("upstream", "molecular_event", "downstream", "phenotype")),
+            "evidence": ", ".join(map(str, item.get("evidence_ids") or [])), "confidence": item.get("confidence"),
+        })
+    _add_table_or_status(doc, chain_rows, [("title", "机制"), ("context", "场景"), ("chain", "上游 → 事件 → 下游 → 表型"), ("evidence", "证据"), ("confidence", "等级")], [1500, 1400, 3900, 1100, 1460], "本次未形成可用机制链。")
+
+    doc.add_heading("3. 场景分支", level=1)
+    branches = synthesis.get("context_branches") if isinstance(synthesis.get("context_branches"), list) else []
+    for item in branches:
+        if isinstance(item, dict):
+            _add_callout(doc, str(item.get("context") or "未特异场景"), f"{item.get('interpretation') or ''}\n证据：{', '.join(map(str, item.get('evidence_ids') or []))}")
+
+    doc.add_heading("4. 当前组学与已知机制整合", level=1)
+    omics = synthesis.get("omics_integration") if isinstance(synthesis.get("omics_integration"), list) else []
+    _add_table_or_status(doc, [item for item in omics if isinstance(item, dict)], [("observation", "本次观察"), ("interpretation", "机制解释"), ("status", "层级"), ("evidence_ids", "证据")], [2500, 3700, 1300, 1860], "本次没有可整合的实验室组学记录。")
+
+    doc.add_heading("5. 可检验假设与实验", level=1)
+    hypotheses = synthesis.get("testable_hypotheses") if isinstance(synthesis.get("testable_hypotheses"), list) else []
+    for index, item in enumerate(hypotheses, 1):
+        if not isinstance(item, dict):
+            continue
+        _add_callout(doc, f"假设 {index}", (
+            f"{item.get('hypothesis') or ''}\n依据：{item.get('rationale') or ''}\n"
+            f"实验：{item.get('experiment') or ''}\n对照：{item.get('controls') or ''}\n"
+            f"读出：{item.get('readouts') or ''}\n判别结果：{item.get('discriminating_result') or ''}\n"
+            f"证据：{', '.join(map(str, item.get('evidence_ids') or []))}"
+        ), fill=CAUTION_FILL)
+    if not hypotheses:
+        _add_callout(doc, "状态", "证据回退模式不自动新增机制假设；请先核验关键证据后再设计区分性实验。")
+
+    doc.add_heading("6. 证据边界与参考文献", level=1)
+    gaps = synthesis.get("knowledge_gaps") if isinstance(synthesis.get("knowledge_gaps"), list) else []
+    for gap in gaps:
+        paragraph = doc.add_paragraph(style="List Bullet")
+        paragraph.add_run(str(gap))
+    evidence_lookup = {str(row.get("evidence_id")): row for row in bundle.mechanism_claims}
+    reference_ids = [str(item) for item in synthesis.get("references", [])] if isinstance(synthesis.get("references"), list) else list(evidence_lookup)
+    reference_rows = []
+    for evidence_id in reference_ids:
+        row = evidence_lookup.get(evidence_id)
+        if not row:
+            continue
+        reference_rows.append({
+            "id": evidence_id, "level": row.get("evidence_level"), "statement": _compact_text(row.get("statement"), 140),
+            "doi": row.get("dois"), "source": row.get("source_type"),
+        })
+    _add_table_or_status(doc, reference_rows, [("id", "ID"), ("level", "证据等级"), ("statement", "证据摘要"), ("doi", "DOI"), ("source", "来源")], [700, 1300, 4300, 1700, 1360], "本次未形成可用机制证据。")
+    _add_callout(doc, "统一边界", "数据库整理与论文摘要需回到全文核验；组学变化不等于因果；PTM 位点变化必须结合总蛋白和位点占有率。", fill=CAUTION_FILL)
+
+    for paragraph in doc.paragraphs:
+        if not paragraph.runs:
+            paragraph.add_run("")
+        if paragraph.style.name == "Heading 1":
+            _format_paragraph_runs(paragraph, size=HEADING1_SIZE, bold=True)
+        elif paragraph.style.name == "Heading 2":
+            _format_paragraph_runs(paragraph, size=HEADING2_SIZE, bold=True)
+        elif paragraph.style.name == "Title":
+            _format_paragraph_runs(paragraph, size=TITLE_SIZE, bold=True)
+        else:
+            for run in paragraph.runs:
+                if run.font.size is None:
+                    _format_run(run)
+    output = io.BytesIO()
+    doc.save(output)
+    return output.getvalue()
+
+
 def _sheet_from_rows(workbook: Workbook, name: str, rows: list[dict[str, object]], columns: list[str]) -> None:
     sheet = workbook.create_sheet(name)
     sheet.append(columns)
@@ -1240,7 +1417,7 @@ def build_excel_report(bundle: AnalysisBundle) -> bytes:
     workbook = Workbook()
     workbook.remove(workbook.active)
     overview = [
-        {"item": "app_version", "value": "1.9.1 (build 20)"},
+        {"item": "app_version", "value": "1.9.7 (build 26)"},
         {"item": "mode", "value": bundle.mode},
         {"item": "input_type", "value": bundle.input_type},
         {"item": "input_count", "value": len(bundle.inputs)},
@@ -1273,6 +1450,15 @@ def build_excel_report(bundle: AnalysisBundle) -> bytes:
         "confidence", "limitations", "recommended_action", "source_refs",
     ]
     _sheet_from_rows(workbook, "Interpretation", interpretation_rows, interpretation_columns)
+    mechanism_columns = list(bundle.mechanism_claims[0].keys()) if bundle.mechanism_claims else [
+        "evidence_id", "gene_id", "category", "statement", "context", "evidence_level", "dois", "source_type",
+    ]
+    _sheet_from_rows(workbook, "Mechanism Evidence", bundle.mechanism_claims, mechanism_columns)
+    synthesis_rows = [
+        {"section": key, "content": value}
+        for key, value in bundle.ai_synthesis.items()
+    ]
+    _sheet_from_rows(workbook, "AI Synthesis", synthesis_rows, ["section", "content"])
     mapping_columns = ["input_id", "input_type", "resolved_rap_gene", "resolved_msu_id", "mapping_count", "status", "note", "error"]
     _sheet_from_rows(workbook, "ID_Mapping", bundle.mapping_rows, mapping_columns)
     ricedata_columns = list(bundle.ricedata_rows[0].keys()) if bundle.ricedata_rows else ["check", "status", "error"]
@@ -1333,6 +1519,11 @@ def build_excel_report(bundle: AnalysisBundle) -> bytes:
         ("Lab_Omics_Differential", bundle.lab_omics_differential),
         ("Lab_Omics_Profiles", bundle.lab_omics_profiles),
         ("Lab_Omics_Status", bundle.lab_omics_status),
+        ("Omics_Published_Evidence", bundle.lab_omics_published_evidence),
+        ("Omics_Consensus_Scores", bundle.lab_omics_consensus_scores),
+        ("Omics_QC", bundle.lab_omics_qc_metrics),
+        ("Omics_Dataset_Context", bundle.lab_omics_dataset_context),
+        ("Omics_Dataset_Registry", bundle.lab_omics_dataset_registry),
     ]
     for sheet_name, rows in deep_sheets:
         columns = list(rows[0].keys()) if rows else ["input_id", "status", "source_url", "queried_at", "error"]
@@ -1369,11 +1560,15 @@ def build_analysis_zip(
     prediction_raw_artifacts: dict[str, bytes] | None = None,
     deep_charts: dict[str, bytes] | None = None,
     deep_raw_artifacts: dict[str, bytes] | None = None,
+    ai_word_bytes: bytes | None = None,
+    ai_stem: str = "",
 ) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(f"{stem}.docx", word_bytes)
         archive.writestr(f"{stem}.xlsx", excel_bytes)
+        if ai_word_bytes and ai_stem:
+            archive.writestr(f"ai_interpretation/{ai_stem}.docx", ai_word_bytes)
         archive.writestr("annotations/ricedata_gene_annotations.csv", _rows_to_csv_bytes(bundle.ricedata_rows))
         archive.writestr("annotations/ricedata_references.csv", _rows_to_csv_bytes(bundle.ricedata_references))
         efp_rows = [record.summary_row() for record in bundle.efp_rows]
@@ -1438,6 +1633,11 @@ def build_analysis_zip(
             "lab_omics/differential_results.csv": bundle.lab_omics_differential,
             "lab_omics/abundance_profiles.csv": bundle.lab_omics_profiles,
             "lab_omics/status.csv": bundle.lab_omics_status,
+            "lab_omics/published_evidence.csv": bundle.lab_omics_published_evidence,
+            "lab_omics/consensus_scores.csv": bundle.lab_omics_consensus_scores,
+            "lab_omics/qc_metrics.csv": bundle.lab_omics_qc_metrics,
+            "lab_omics/dataset_context.csv": bundle.lab_omics_dataset_context,
+            "lab_omics/dataset_registry.csv": bundle.lab_omics_dataset_registry,
         }
         for name, rows in deep_exports.items():
             archive.writestr(name, _rows_to_csv_bytes(rows))
@@ -1451,6 +1651,10 @@ def build_analysis_zip(
         archive.writestr("interpretation/interpretation.csv", _rows_to_csv_bytes(interpretation_rows))
         archive.writestr("interpretation/interpretation.json", json.dumps(interpretation_rows, ensure_ascii=False, indent=2).encode("utf-8"))
         archive.writestr("interpretation/status.json", json.dumps(bundle.interpretation_status, ensure_ascii=False, indent=2).encode("utf-8"))
+        archive.writestr("ai_interpretation/mechanism_claims.csv", _rows_to_csv_bytes(bundle.mechanism_claims))
+        archive.writestr("ai_interpretation/mechanism_claims.json", json.dumps(bundle.mechanism_claims, ensure_ascii=False, indent=2).encode("utf-8"))
+        archive.writestr("ai_interpretation/ai_synthesis.json", json.dumps(bundle.ai_synthesis, ensure_ascii=False, indent=2).encode("utf-8"))
+        archive.writestr("ai_interpretation/status.json", json.dumps(bundle.interpretation_status, ensure_ascii=False, indent=2).encode("utf-8"))
         archive.writestr(
             "manifest.json",
             json.dumps(bundle.as_dict(), ensure_ascii=False, indent=2).encode("utf-8"),
@@ -1458,7 +1662,7 @@ def build_analysis_zip(
         archive.writestr(
             "README.txt",
             (
-                "My Bio Tools v1.9.1 (build 20) - rice gene analysis bundle\n"
+                "My Bio Tools v1.9.7 (build 26) - rice gene analysis bundle\n"
                 f"Generated: {bundle.generated_at}\n"
                 "Word fonts: East Asia=华文仿宋; ASCII/HAnsi=Times New Roman.\n"
                 "All localization outputs are computational predictions and require experimental validation.\n"
@@ -1501,6 +1705,16 @@ def build_report_artifacts(
         prediction_charts=prediction_charts,
         deep_charts=deep_charts,
     )
+    ai_requested = bundle.interpretation_status.get("requested_mode") == "llm"
+    ai_stem = f"rice_gene_ai_interpretation_{safe_file_stem(primary_name)}" if ai_requested else ""
+    ai_word_bytes = b""
+    if ai_requested:
+        if not bundle.ai_synthesis:
+            bundle.ai_synthesis = build_evidence_synthesis(bundle)
+        ai_word_bytes = build_ai_interpretation_word_report(bundle)
+        bundle.interpretation_status["ai_report_status"] = (
+            "ready" if bundle.ai_synthesis.get("report_mode") == "ai" else "evidence_fallback_ready"
+        )
     excel_bytes = build_excel_report(bundle)
     zip_bytes = build_analysis_zip(
         bundle,
@@ -1512,12 +1726,17 @@ def build_report_artifacts(
         prediction_raw_artifacts=prediction_raw_artifacts,
         deep_charts=deep_charts,
         deep_raw_artifacts=deep_raw_artifacts,
+        ai_word_bytes=ai_word_bytes,
+        ai_stem=ai_stem,
     )
     return {
         "stem": stem,
         "docx": word_bytes,
         "xlsx": excel_bytes,
         "zip": zip_bytes,
+        "ai_docx": ai_word_bytes,
+        "ai_stem": ai_stem,
+        "ai_report_mode": str(bundle.ai_synthesis.get("report_mode") or "not_requested"),
     }
 
 
@@ -1527,6 +1746,7 @@ __all__ = [
     "WESTERN_FONT",
     "build_analysis_zip",
     "build_excel_report",
+    "build_ai_interpretation_word_report",
     "build_report_artifacts",
     "build_word_report",
 ]

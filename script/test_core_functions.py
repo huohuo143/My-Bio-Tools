@@ -577,6 +577,8 @@ class CoreFunctionTests(unittest.TestCase):
             [
                 "Overview",
                 "Interpretation",
+                "Mechanism Evidence",
+                "AI Synthesis",
                 "ID_Mapping",
                 "RiceData",
                 "RiceData_References",
@@ -606,6 +608,11 @@ class CoreFunctionTests(unittest.TestCase):
                 "Lab_Omics_Differential",
                 "Lab_Omics_Profiles",
                 "Lab_Omics_Status",
+                "Omics_Published_Evidence",
+                "Omics_Consensus_Scores",
+                "Omics_QC",
+                "Omics_Dataset_Context",
+                "Omics_Dataset_Registry",
                 "Warnings_Sources",
             ],
         )
@@ -733,7 +740,7 @@ class CoreFunctionTests(unittest.TestCase):
         finally:
             efp_module.get_session = original
 
-    def test_v171_sequence_relationship_formats_and_six_tabs(self) -> None:
+    def test_v197_sequence_relationship_formats_and_result_tabs(self) -> None:
         bundle = AnalysisBundle(
             mode="单基因深度分析",
             input_type="RAP/MSU ID",
@@ -749,7 +756,7 @@ class CoreFunctionTests(unittest.TestCase):
         self.assertIn("translation_consistency", rows[0])
         self.assertTrue(csv_bytes.startswith(b"\xef\xbb\xbf"))
         source = inspect.getsource(rice_gene_analysis_module._show_results)
-        for label in ("总览", "已知证据", "表达", "序列与结构", "调控与变异", "结论与来源"):
+        for label in ("总览", "功能与证据", "表达", "序列与结构", "调控与变异", "AI 深度解读", "结论与来源"):
             self.assertIn(f'"{label}"', source)
 
     def test_v160_plantregmap_vcf_and_ref_conflict_fixtures(self) -> None:

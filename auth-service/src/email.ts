@@ -13,7 +13,7 @@ async function send(env: Env, to: string, subject: string, text: string, html: s
     headers: {
       authorization: `Bearer ${env.RESEND_API_KEY}`,
       "content-type": "application/json",
-      "user-agent": "MyBioToolsAuth/1.9.1",
+      "user-agent": "MyBioToolsAuth/1.9.5",
     },
     body: JSON.stringify({
       from: env.EMAIL_FROM,
@@ -64,14 +64,22 @@ export async function sendAdminRegistrationNotice(env: Env, user: UserRow): Prom
 
 export async function sendReviewNotice(env: Env, user: UserRow, status: string, reason: string, previousStatus?: string): Promise<void> {
   const label = status === "active"
-    ? (previousStatus === "suspended" || previousStatus === "rejected" ? "已恢复" : "已批准")
+    ? (previousStatus === "active" ? "授权已更新" : previousStatus === "suspended" || previousStatus === "rejected" ? "已恢复" : "已批准")
     : status === "suspended" ? "已停用" : "未通过";
   const reasonText = reason ? `\n说明：${reason}` : "";
+  const authorizationText = status !== "active" ? "" : user.authorization_expires_at === null
+    ? "\n授权期限：永久"
+    : `\n授权到期：${new Date(user.authorization_expires_at * 1000).toLocaleString("zh-CN", {
+      timeZone: "Asia/Shanghai", hour12: false,
+    })}`;
+  const authorizationHTML = authorizationText
+    ? `<p>${escapeHTML(authorizationText.trim())}</p>`
+    : "";
   await send(
     env,
     user.email,
     `My Bio Tools 账号${label}`,
-    `您的 My Bio Tools 账号${label}。${reasonText}`,
-    `<p>您的 My Bio Tools 账号<strong>${label}</strong>。</p>${reason ? `<p>说明：${escapeHTML(reason)}</p>` : ""}`,
+    `您的 My Bio Tools 账号${label}。${authorizationText}${reasonText}`,
+    `<p>您的 My Bio Tools 账号<strong>${label}</strong>。</p>${authorizationHTML}${reason ? `<p>说明：${escapeHTML(reason)}</p>` : ""}`,
   );
 }

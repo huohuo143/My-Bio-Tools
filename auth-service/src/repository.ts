@@ -36,13 +36,13 @@ export class Repository {
       INSERT INTO users (
         id, email, real_name, lab_role, application_note, password_hash, password_salt,
         status, email_verified_at, reviewed_at, reviewed_by, review_reason,
-        failed_attempts, locked_until, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        authorization_expires_at, failed_attempts, locked_until, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       user.id, user.email, user.real_name, user.lab_role, user.application_note,
       user.password_hash, user.password_salt, user.status, user.email_verified_at,
-      user.reviewed_at, user.reviewed_by, user.review_reason, user.failed_attempts,
-      user.locked_until, user.created_at, user.updated_at,
+      user.reviewed_at, user.reviewed_by, user.review_reason, user.authorization_expires_at,
+      user.failed_attempts, user.locked_until, user.created_at, user.updated_at,
     ).run();
   }
 
@@ -177,7 +177,12 @@ export class Repository {
     return (result[0].meta.changes ?? 0) === 1;
   }
 
-  async createSession(userId: string, deviceId: string, refreshHash: string, now: number): Promise<SessionRow> {
+  async createSession(
+    userId: string,
+    deviceId: string,
+    refreshHash: string,
+    now: number,
+  ): Promise<SessionRow> {
     const session: SessionRow = {
       id: crypto.randomUUID(), user_id: userId, device_id: deviceId, refresh_hash: refreshHash,
       created_at: now, last_seen_at: now, expires_at: now + 30 * 24 * 60 * 60, revoked_at: null,
@@ -222,10 +227,18 @@ export class Repository {
       .bind(now, userId).run();
   }
 
-  async listUsers(status: string, query: string): Promise<UserRow[]> {
+  async listUsers(status: string, query: string, now: number): Promise<UserRow[]> {
     const where: string[] = ["status != 'deleted'"];
     const values: unknown[] = [];
-    if (status !== "all") { where.push("status = ?"); values.push(status); }
+    if (status === "active") {
+      where.push("status = 'active' AND (authorization_expires_at IS NULL OR authorization_expires_at > ?)");
+      values.push(now);
+    } else if (status === "expired") {
+      where.push("status = 'active' AND authorization_expires_at IS NOT NULL AND authorization_expires_at <= ?");
+      values.push(now);
+    } else if (status !== "all") {
+      where.push("status = ?"); values.push(status);
+    }
     if (query) {
       where.push("(email LIKE ? OR real_name LIKE ?)");
       const pattern = `%${query.replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
@@ -237,11 +250,18 @@ export class Repository {
     return result.results ?? [];
   }
 
-  async userStatusCounts(): Promise<Record<string, number>> {
+  async userStatusCounts(now: number): Promise<Record<string, number>> {
     const result = await this.db.prepare(`
       SELECT status, COUNT(*) AS count FROM users WHERE status != 'deleted' GROUP BY status
     `).all<{ status: string; count: number }>();
-    return Object.fromEntries((result.results ?? []).map((row) => [row.status, Number(row.count)]));
+    const counts = Object.fromEntries((result.results ?? []).map((row) => [row.status, Number(row.count)]));
+    const expired = await this.db.prepare(`
+      SELECT COUNT(*) AS count FROM users
+      WHERE status = 'active' AND authorization_expires_at IS NOT NULL AND authorization_expires_at <= ?
+    `).bind(now).first<{ count: number }>();
+    counts.expired = Number(expired?.count ?? 0);
+    counts.active = Math.max(0, Number(counts.active ?? 0) - counts.expired);
+    return counts;
   }
 
   async setUserStatus(
@@ -250,12 +270,18 @@ export class Repository {
     reason: string,
     adminEmail: string,
     now: number,
+    authorizationExpiresAt: number | null,
   ): Promise<boolean> {
     const result = await this.db.prepare(`
-      UPDATE users SET status = ?, review_reason = ?, reviewed_at = ?, reviewed_by = ?, updated_at = ?
+      UPDATE users SET status = ?, review_reason = ?, reviewed_at = ?, reviewed_by = ?,
+        authorization_expires_at = ?, updated_at = ?
       WHERE id = ? AND status != 'deleted' AND email_verified_at IS NOT NULL
-    `).bind(status, reason, now, adminEmail, now, userId).run();
-    if ((result.meta.changes ?? 0) === 1 && status !== "active") await this.revokeAllSessions(userId, now);
+    `).bind(
+      status, reason, now, adminEmail,
+      status === "active" ? authorizationExpiresAt : null,
+      now, userId,
+    ).run();
+    if ((result.meta.changes ?? 0) === 1) await this.revokeAllSessions(userId, now);
     return (result.meta.changes ?? 0) === 1;
   }
 
@@ -269,7 +295,7 @@ export class Repository {
         UPDATE users SET email = ?, real_name = '已删除用户', lab_role = '', application_note = '',
           password_hash = '', password_salt = '', status = 'deleted', email_verified_at = NULL,
           reviewed_at = ?, reviewed_by = NULL, review_reason = NULL, failed_attempts = 0,
-          locked_until = NULL, updated_at = ?
+          authorization_expires_at = NULL, locked_until = NULL, updated_at = ?
         WHERE id = ? AND status != 'deleted'
       `).bind(anonymizedEmail, now, now, userId),
     ]);
