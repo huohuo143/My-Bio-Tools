@@ -90,8 +90,8 @@ jobs:
             "/VERYSILENT",
             "/SUPPRESSMSGBOXES",
             "/NORESTART",
-            "/DIR=$installDir",
-            "/LOG=$installLog"
+            "/DIR=`"$installDir`"",
+            "/LOG=`"$installLog`""
           )
           $installer = Start-Process -FilePath $setup -ArgumentList $arguments -Wait -PassThru
           if ($installer.ExitCode -ne 0) {
