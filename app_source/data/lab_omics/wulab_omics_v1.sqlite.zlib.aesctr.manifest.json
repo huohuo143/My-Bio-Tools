@@ -1,0 +1,13 @@
+{
+  "format": "MBTO2",
+  "cipher": "AES-256-CTR",
+  "authentication": "HMAC-SHA256 encrypt-then-MAC",
+  "compression": "zlib level 9",
+  "plaintext_size": 524537856,
+  "encrypted_size": 72962313,
+  "plaintext_sha256": "d0c3a4a78713caf5db4df7560eb2cb2b56ed18a91e97abb1b7781957ed7cf30d",
+  "encrypted_sha256": "ebaac4015acea057fadbd7e49f9710e986da1cedc8cd14f0b2771a1d77c5e838",
+  "schema_version": 3,
+  "app_target_version": "1.9.6 (build 25)",
+  "key_policy": "existing production omics key reused; key material not embedded in app"
+}

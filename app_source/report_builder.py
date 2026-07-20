@@ -9,6 +9,7 @@ import io
 import json
 from pathlib import Path
 import re
+import sys
 import zipfile
 
 from docx import Document
@@ -33,9 +34,9 @@ from rice_efp import EFP_DATA_SOURCES, EFP_SOURCE_GLOSSARY, EFP_GUIDE_URL, EFP_U
 from report_interpretation import build_evidence_synthesis, build_rule_interpretations
 
 
-# Use the actual macOS/PostScript family name so Word and LibreOffice resolve
-# the requested FangSong face instead of rendering missing-glyph boxes.
-CHINESE_FONT = "华文仿宋"
+# Use the native FangSong family name on each supported platform so Word and
+# LibreOffice resolve Chinese glyphs without missing-font substitution.
+CHINESE_FONT = "仿宋" if sys.platform == "win32" else "华文仿宋"
 WESTERN_FONT = "Times New Roman"
 EXCEL_FONT = "Arial"
 BODY_SIZE = 10.5
@@ -1664,7 +1665,7 @@ def build_analysis_zip(
             (
                 "My Bio Tools v1.9.7 (build 26) - rice gene analysis bundle\n"
                 f"Generated: {bundle.generated_at}\n"
-                "Word fonts: East Asia=华文仿宋; ASCII/HAnsi=Times New Roman.\n"
+                f"Word fonts: East Asia={CHINESE_FONT}; ASCII/HAnsi=Times New Roman.\n"
                 "All localization outputs are computational predictions and require experimental validation.\n"
             ).encode("utf-8"),
         )

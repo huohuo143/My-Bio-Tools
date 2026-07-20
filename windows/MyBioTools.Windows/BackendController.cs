@@ -41,6 +41,7 @@ internal sealed class BackendController : IDisposable
     private bool _stopping;
     private bool _disposed;
     private BackendAuthorization? _authorization;
+    private OmicsUnlockResult? _omicsUnlock;
 
     public BackendController(Dispatcher dispatcher)
     {
@@ -116,6 +117,9 @@ internal sealed class BackendController : IDisposable
         try
         {
             var resources = ResolveResources();
+            _omicsUnlock = OmicsDatabaseUnlocker.Unlock(
+                resources.AppSource,
+                _authorization.OmicsKeyB64);
             var port = GetAvailableLoopbackPort();
             var baseUrl = new Uri($"http://127.0.0.1:{port}/");
 
@@ -136,9 +140,13 @@ internal sealed class BackendController : IDisposable
             startInfo.Environment["ARROW_DEFAULT_MEMORY_POOL"] = "system";
             startInfo.Environment["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false";
             startInfo.Environment["STREAMLIT_SERVER_FILE_WATCHER_TYPE"] = "none";
+            startInfo.Environment["MY_BIO_TOOLS_ACCESS_MODE"] = "authorized";
             startInfo.Environment["MY_BIO_TOOLS_OFFLINE_LICENSE"] = _authorization.OfflineLicense;
             startInfo.Environment["MY_BIO_TOOLS_INSTALLATION_HASH"] = _authorization.InstallationHash;
             startInfo.Environment["MY_BIO_TOOLS_LICENSE_PUBLIC_JWK"] = _authorization.PublicJwk;
+            startInfo.Environment["MY_BIO_TOOLS_OMICS_KEY_B64"] = _authorization.OmicsKeyB64;
+            startInfo.Environment["MY_BIO_TOOLS_OMICS_UNLOCK_DIR"] = _omicsUnlock.DirectoryPath;
+            startInfo.Environment["MY_BIO_TOOLS_OMICS_DB"] = _omicsUnlock.DatabasePath;
 
             var process = new Process
             {
@@ -244,6 +252,7 @@ internal sealed class BackendController : IDisposable
         }
 
         _healthCancellation?.Cancel();
+        CleanupOmicsUnlock();
         Publish(new BackendSnapshot(
             BackendStatus.Failed,
             Message: $"内置服务意外退出（代码 {exitCode}）。请打开运行日志查看详情。",
@@ -325,6 +334,13 @@ internal sealed class BackendController : IDisposable
 
         _jobObject?.Dispose();
         _jobObject = null;
+        CleanupOmicsUnlock();
+    }
+
+    private void CleanupOmicsUnlock()
+    {
+        var current = Interlocked.Exchange(ref _omicsUnlock, null);
+        OmicsDatabaseUnlocker.Cleanup(current);
     }
 
     private void RecordLine(string? line)

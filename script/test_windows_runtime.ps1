@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)][string]$AppDir
+    [Parameter(Mandatory = $true)][string]$AppDir,
+    [switch]$RequireAuthorizedAccount
 )
 
 Set-StrictMode -Version Latest
@@ -60,7 +61,13 @@ try {
     }
 
     if (-not $healthPassed) {
-        throw "Windows APP 未在 60 秒内通过内置服务健康检查。"
+        if ($RequireAuthorizedAccount) {
+            throw "Windows APP 未在 60 秒内完成登录授权、多组学解锁和内置服务健康检查。请先用已审核账号登录。"
+        }
+        if ($app.HasExited) {
+            throw "Windows APP 在登录界面验证期间意外退出。"
+        }
+        Write-Host "PASS Windows APP 登录/注册界面保持运行；未使用账号，不启动受保护后端"
     }
 } finally {
     if ($app -and -not $app.HasExited) {
@@ -77,5 +84,13 @@ $orphan = Get-CimInstance Win32_Process -Filter "Name = 'BioToolsBackend.exe'" -
 if ($orphan) {
     throw "关闭 APP 后仍发现残留 BioToolsBackend.exe 进程。"
 }
+$omicsCache = Join-Path $env:LOCALAPPDATA "WuLab\My Bio Tools\Cache\authenticated-omics"
+$plaintextDatabases = @()
+if (Test-Path $omicsCache) {
+    $plaintextDatabases = @(Get-ChildItem $omicsCache -File -Filter "wulab_omics_v1.sqlite" -Recurse -ErrorAction SilentlyContinue)
+}
+if ($plaintextDatabases.Count -gt 0) {
+    throw "关闭 APP 后仍发现临时明文多组学数据库。"
+}
 
-Write-Host "PASS 关闭 APP 后无残留后端进程"
+Write-Host "PASS 关闭 APP 后无残留后端进程和临时多组学数据库"

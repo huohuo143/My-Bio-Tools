@@ -47,6 +47,26 @@ internal sealed class LicenseVerifier
         var now = (currentTime ?? DateTimeOffset.UtcNow).ToUnixTimeSeconds();
         if (claims.Type != "offline-license" || claims.Version != 1)
             throw new InvalidDataException("离线授权类型无效。");
+        if (string.IsNullOrWhiteSpace(claims.OmicsKeyB64))
+            throw new InvalidDataException("离线授权未包含多组学解锁信息，请联网重新登录。");
+        byte[] omicsKey;
+        try
+        {
+            omicsKey = Convert.FromBase64String(claims.OmicsKeyB64);
+        }
+        catch (FormatException exception)
+        {
+            throw new InvalidDataException("离线授权中的多组学解锁信息无效。", exception);
+        }
+        try
+        {
+            if (omicsKey.Length != 32)
+                throw new InvalidDataException("离线授权中的多组学解锁信息长度无效。");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(omicsKey);
+        }
         if (claims.Device != InstallationHash(installationId))
             throw new InvalidDataException("授权不属于当前设备。");
         if (claims.ExpiresAt <= now) throw new InvalidDataException("离线授权已过期，请联网验证。");

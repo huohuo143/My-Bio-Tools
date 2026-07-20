@@ -8,7 +8,9 @@ internal sealed record UserProfile(
     string RealName,
     string LabRole,
     string Status,
-    string? ReviewReason);
+    string? ReviewReason,
+    long? AuthorizationExpiresAt,
+    bool? AuthorizationPermanent);
 
 internal sealed record DeviceProfile(
     string Id,
@@ -39,7 +41,8 @@ internal sealed record StoredAuthState(
 internal sealed record BackendAuthorization(
     string OfflineLicense,
     string InstallationHash,
-    string PublicJwk);
+    string PublicJwk,
+    string OmicsKeyB64);
 
 internal sealed record AuthConfiguration(string BaseUrl, string PublicJwk)
 {
@@ -82,7 +85,7 @@ internal sealed class AuthApiException(string code, string message, int statusCo
     public string Code { get; } = code;
     public int StatusCode { get; } = statusCode;
     public bool IsExplicitRevocation => statusCode is 401 or 403
-        || Code is "AUTHORIZATION_REVOKED" or "ACCOUNT_SUSPENDED" or "ACCOUNT_DELETED" or "SESSION_EXPIRED";
+        || Code is "AUTHORIZATION_REVOKED" or "AUTHORIZATION_EXPIRED" or "ACCOUNT_SUSPENDED" or "ACCOUNT_DELETED" or "SESSION_EXPIRED";
 }
 
 internal sealed record OfflineLicenseClaims(
@@ -91,7 +94,8 @@ internal sealed record OfflineLicenseClaims(
     [property: JsonPropertyName("device")] string Device,
     [property: JsonPropertyName("iat")] long IssuedAt,
     [property: JsonPropertyName("exp")] long ExpiresAt,
-    [property: JsonPropertyName("version")] int Version);
+    [property: JsonPropertyName("version")] int Version,
+    [property: JsonPropertyName("omics_key_b64")] string OmicsKeyB64);
 
 internal static class AuthJson
 {

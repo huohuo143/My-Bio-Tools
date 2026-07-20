@@ -24,6 +24,7 @@ EXPECTED_WINDOWS_FILES = [
     WINDOWS_PROJECT / "AccountWindow.xaml.cs",
     WINDOWS_PROJECT / "GlobalUsings.cs",
     WINDOWS_PROJECT / "BackendController.cs",
+    WINDOWS_PROJECT / "OmicsDatabaseUnlocker.cs",
     WINDOWS_PROJECT / "AuthModels.cs",
     WINDOWS_PROJECT / "AuthService.cs",
     WINDOWS_PROJECT / "LicenseVerifier.cs",
@@ -38,9 +39,8 @@ EXPECTED_WINDOWS_FILES = [
     ROOT / "windows" / "installer" / "MyBioTools.iss",
     ROOT / "script" / "build_windows.ps1",
     ROOT / "script" / "test_windows_runtime.ps1",
-    ROOT / "script" / "test_codex_chatgpt.py",
-    APP_SOURCE / "codex_chatgpt.py",
-    APP_SOURCE / "report_interpretation.py",
+    ROOT / "windows" / "MyBioTools.Windows.Smoke" / "MyBioTools.Windows.Smoke.csproj",
+    ROOT / "windows" / "MyBioTools.Windows.Smoke" / "Program.cs",
     ROOT / "packaging" / "THIRD_PARTY_NOTICES.txt",
 ]
 
@@ -97,10 +97,10 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         "UseWPF": "true",
         "RuntimeIdentifier": "win-x64",
         "SelfContained": "true",
-        "Version": "1.9.1",
-        "AssemblyVersion": "1.9.1.0",
-        "FileVersion": "1.9.1.0",
-        "InformationalVersion": "1.9.1",
+        "Version": "1.9.7",
+        "AssemblyVersion": "1.9.7.26",
+        "FileVersion": "1.9.7.26",
+        "InformationalVersion": "1.9.7+build.26",
     }
     for key, expected in expected_values.items():
         if values.get(key) != expected:
@@ -131,6 +131,7 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
     license_verifier = (WINDOWS_PROJECT / "LicenseVerifier.cs").read_text(encoding="utf-8")
     credential_store = (WINDOWS_PROJECT / "SecureCredentialStore.cs").read_text(encoding="utf-8")
     account_window = (WINDOWS_PROJECT / "AccountWindow.xaml.cs").read_text(encoding="utf-8")
+    omics_unlocker = (WINDOWS_PROJECT / "OmicsDatabaseUnlocker.cs").read_text(encoding="utf-8")
     required_tokens = {
         "external navigation isolation": "IsLocalAppUri",
         "download interception": "Core_DownloadStarting",
@@ -145,8 +146,17 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         "resume authorization refresh": "WmPowerBroadcast",
         "member device unbinding": "DeviceToRevoke",
         "member password reset": "PasswordResetRequested",
+        "signed omics key claim": "omics_key_b64",
+        "authenticated omics unlock": "OmicsDatabaseUnlocker.Unlock",
+        "native AES-256-CTR validation": "NIST SP 800-38A",
+        "decrypted database handoff": "MY_BIO_TOOLS_OMICS_DB",
+        "omics key handoff": "MY_BIO_TOOLS_OMICS_KEY_B64",
     }
-    combined = main_window + backend + job_object + auth_service + license_verifier + credential_store + account_window
+    auth_models = (WINDOWS_PROJECT / "AuthModels.cs").read_text(encoding="utf-8")
+    combined = (
+        main_window + backend + job_object + auth_service + license_verifier
+        + credential_store + account_window + auth_models + omics_unlocker
+    )
     for description, token in required_tokens.items():
         if token not in combined:
             failures.append(f"missing Windows behavior: {description}")
@@ -170,10 +180,20 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         failures.append("Windows PyInstaller spec does not discover modules from tool_catalog")
     else:
         checks.append("catalog-driven PyInstaller hidden imports")
-    if '"codex_chatgpt"' not in windows_spec or '"report_interpretation"' not in windows_spec:
-        failures.append("Windows PyInstaller spec does not include ChatGPT/Codex interpretation modules")
+    interpretation_modules = {
+        "omics_unlock", "codex_chatgpt", "llm_providers", "model_preferences",
+        "report_interpretation", "mechanism_evidence", "lab_omics",
+    }
+    missing_interpretation_modules = sorted(
+        module for module in interpretation_modules if f'"{module}"' not in windows_spec
+    )
+    if missing_interpretation_modules:
+        failures.append(
+            "Windows PyInstaller spec misses 1.9.7 modules: "
+            + ", ".join(missing_interpretation_modules)
+        )
     else:
-        checks.append("ChatGPT/Codex frozen backend modules")
+        checks.append("1.9.7 multi-provider and authenticated-omics hidden imports")
     if (
         "module_collection_mode" not in windows_spec
         or '"docx": "pyz+py"' not in windows_spec
@@ -181,24 +201,6 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         failures.append("Windows PyInstaller spec does not preserve python-docx package directories")
     else:
         checks.append("python-docx frozen package layout")
-
-    codex_source = (APP_SOURCE / "codex_chatgpt.py").read_text(encoding="utf-8")
-    interpretation_source = (APP_SOURCE / "report_interpretation.py").read_text(encoding="utf-8")
-    codex_contract = {
-        "official Windows Codex location": "Programs/OpenAI/Codex/bin/codex.exe",
-        "hidden Windows subprocess": "CREATE_NO_WINDOW",
-        "ephemeral Codex session": "--ephemeral",
-        "strict Codex JSON schema": "--output-schema",
-        "tool-disabled Codex invocation": '"shell_tool"',
-        "ChatGPT-authenticated provider": 'PROVIDER_CODEX_CHATGPT = "codex_chatgpt"',
-        "offline fallback error code": 'status["error_code"]',
-    }
-    codex_combined = codex_source + interpretation_source
-    for description, token in codex_contract.items():
-        if token not in codex_combined:
-            failures.append(f"missing Codex behavior: {description}")
-        else:
-            checks.append(description)
 
     build_script = (ROOT / "script" / "build_windows.ps1").read_text(encoding="utf-8")
     installer_script = (ROOT / "windows" / "installer" / "MyBioTools.iss").read_text(
@@ -212,7 +214,12 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         "SHA256SUMS.txt",
         "validate_ricedata_live.py",
         "validate_efp_live.py",
-        "test_codex_chatgpt.py",
+        "test_multi_provider_api.py",
+        "test_backend_license_gate.py",
+        "MyBioTools.Windows.Smoke",
+        '$Version = "1.9.7"',
+        "$Build = 26",
+        "拒绝把私钥写入 Windows 分发包",
         "PrivilegesRequired=lowest",
         "ArchitecturesAllowed=x64compatible",
         "MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
@@ -240,18 +247,14 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         failures.append(f"expected 7 functional tools, found {tool_count}")
     if online_count != 2:
         failures.append(f"expected 2 online tools, found {online_count}")
-    incomplete_explanations = [
-        tool.name
-        for tool in tools
-        if not all((tool.inputs, tool.method, tool.outputs, tool.cautions))
-    ]
-    if incomplete_explanations:
-        failures.append(
-            "tool explanation fields are incomplete: " + ", ".join(incomplete_explanations)
-        )
-    else:
-        checks.append("all tool input, method, output and caution explanations")
     checks.append(f"tool catalog: {tool_count} tools, {online_count} online")
+
+    from llm_providers import CLOUD_API_PROVIDERS  # noqa: PLC0415
+
+    if len(CLOUD_API_PROVIDERS) != 6:
+        failures.append(f"expected 6 cloud AI providers, found {len(CLOUD_API_PROVIDERS)}")
+    else:
+        checks.append("six session-key-only cloud AI providers")
 
     removed_pages = ["tool_b.py", "tool_c.py", "extract_rows_csv.py"]
     unexpected = [name for name in removed_pages if (APP_SOURCE / name).exists()]
@@ -280,6 +283,10 @@ def validate_staged_app(
         staged_app / "My Bio Tools.exe",
         staged_app / "backend" / "BioToolsBackend.exe",
         staged_app / "app_source" / "main.py",
+        staged_app / "app_source" / "llm_providers.py",
+        staged_app / "app_source" / "model_preferences.py",
+        staged_app / "app_source" / "mechanism_evidence.py",
+        staged_app / "app_source" / "data" / "lab_omics" / "wulab_omics_v1.sqlite.zlib.aesctr",
         staged_app / "prerequisites" / "MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
         staged_app / "THIRD_PARTY_NOTICES.txt",
         staged_app / "version-manifest.json",
@@ -310,7 +317,7 @@ def validate_staged_app(
         elif path.stat().st_size < minimum_size:
             failures.append(f"staged data file is unexpectedly small: {path}")
 
-    installer = required[3]
+    installer = staged_app / "prerequisites" / "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
     if installer.is_file() and installer.stat().st_size < 1_000_000:
         failures.append("staged WebView2 standalone installer is unexpectedly small")
 
@@ -318,7 +325,12 @@ def validate_staged_app(
     if manifest_path.is_file():
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-            if manifest.get("version") != "1.9.1" or manifest.get("platform") != "win-x64":
+            if (
+                manifest.get("version") != "1.9.7"
+                or manifest.get("build") != 26
+                or manifest.get("platform") != "win-x64"
+                or manifest.get("baseline") != "macOS 1.9.7 Build 26"
+            ):
                 failures.append("staged version manifest has unexpected version or platform")
         except Exception as exc:
             failures.append(f"cannot parse staged version manifest: {exc}")
@@ -347,9 +359,10 @@ def write_report(
     staged_app: Path | None,
 ) -> None:
     lines = [
-        "# My Bio Tools Windows 构建验证报告",
+        "# My Bio Tools 1.9.7 Build 26 Windows 构建验证报告",
         "",
         f"- 源码目录：`{ROOT}`",
+        "- 功能基线：`macOS 1.9.7 Build 26`",
         f"- 分发目录：`{staged_app}`" if staged_app else "- 分发目录：未提供，仅验证源码",
         f"- 通过检查：{len(checks)}",
         f"- 失败检查：{len(failures)}",

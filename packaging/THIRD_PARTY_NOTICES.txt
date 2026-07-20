@@ -1,4 +1,4 @@
-My Bio Tools 1.9.7 - Third-Party Notices
+My Bio Tools 1.9.7 Build 26 - Third-Party Notices
 ============================================================
 
 This Windows distribution bundles open-source software. Copyright remains

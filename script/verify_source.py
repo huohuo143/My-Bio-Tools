@@ -29,6 +29,7 @@ HELPER_MODULES = [
     "report_interpretation",
     "report_builder",
     "rice_efp",
+    "lab_omics",
     "analysis_jobs",
     "job_ui",
     "rice_seq_extractor",
@@ -101,6 +102,18 @@ def main() -> int:
                 print(f"data {filename}: ok ({path.stat().st_size} bytes)")
         except Exception as exc:
             failures.append(f"{filename}: cannot read gzip content: {exc}")
+
+    encrypted_omics = APP_SOURCE / "data" / "lab_omics" / "wulab_omics_v1.sqlite.zlib.aesctr"
+    encrypted_manifest = encrypted_omics.with_suffix(encrypted_omics.suffix + ".manifest.json")
+    if not encrypted_omics.is_file() or encrypted_omics.stat().st_size < 10_000_000:
+        failures.append(f"missing or incomplete encrypted omics package: {encrypted_omics}")
+    elif not encrypted_manifest.is_file():
+        failures.append(f"missing encrypted omics manifest: {encrypted_manifest}")
+    else:
+        print(f"encrypted omics package: ok ({encrypted_omics.stat().st_size} bytes)")
+    plaintext_omics = encrypted_omics.with_name("wulab_omics_v1.sqlite")
+    if plaintext_omics.exists():
+        failures.append(f"plaintext omics database must not be distributed: {plaintext_omics}")
 
     vendor_dir = APP_SOURCE / "vendor" / "nlstradamus"
     for path in (

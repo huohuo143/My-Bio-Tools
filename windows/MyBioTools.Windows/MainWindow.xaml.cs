@@ -120,6 +120,7 @@ public partial class MainWindow : Window
                 "PENDING_REVIEW" => "邮箱已验证，当前正在等待管理员审核。",
                 "ACCOUNT_REJECTED" => $"申请未通过：{exception.Message}",
                 "ACCOUNT_SUSPENDED" => $"账号已停用：{exception.Message}",
+                "AUTHORIZATION_EXPIRED" => "账号授权已到期，请联系管理员续期。",
                 "DEVICE_LIMIT_REACHED" => "账号已绑定 2 台设备，请联系管理员或在旧设备上解绑。",
                 _ => exception.Message,
             };

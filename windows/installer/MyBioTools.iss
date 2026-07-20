@@ -1,5 +1,6 @@
 #define MyAppName "My Bio Tools"
-#define MyAppVersion "1.9.1"
+#define MyAppVersion "1.9.7"
+#define MyAppBuild "26"
 #define MyAppPublisher "Wu Lab"
 #define MyAppExeName "My Bio Tools.exe"
 #define WebViewProductKey "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
@@ -18,7 +19,7 @@
 AppId={{E75EC10E-88DE-4A48-8F89-96FF68838DFB}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppVerName={#MyAppName} {#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion} Build {#MyAppBuild}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 DefaultGroupName={#MyAppName}
@@ -27,7 +28,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#OutputDir}
-OutputBaseFilename=My-Bio-Tools-{#MyAppVersion}-win-x64-setup
+OutputBaseFilename=My-Bio-Tools-{#MyAppVersion}-build{#MyAppBuild}-win-x64-setup
 SetupIconFile={#IconFile}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
@@ -36,11 +37,11 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
-VersionInfoVersion=1.9.1.0
+VersionInfoVersion=1.9.7.26
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Windows x64 installer
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion={#MyAppVersion}
+VersionInfoProductVersion={#MyAppVersion} Build {#MyAppBuild}
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
