@@ -1,6 +1,6 @@
 #define MyAppName "My Bio Tools"
-#define MyAppVersion "1.9.7"
-#define MyAppBuild "26"
+#define MyAppVersion "1.9.8"
+#define MyAppBuild "27"
 #define MyAppPublisher "Wu Lab"
 #define MyAppExeName "My Bio Tools.exe"
 #define WebViewProductKey "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
@@ -37,7 +37,7 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
-VersionInfoVersion=1.9.7.26
+VersionInfoVersion=1.9.8.27
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Windows x64 installer
 VersionInfoProductName={#MyAppName}

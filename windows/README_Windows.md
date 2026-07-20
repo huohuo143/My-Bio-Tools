@@ -1,6 +1,6 @@
 # My Bio Tools for Windows
 
-Windows 版以已验证的 macOS `1.9.7 Build 26` 发布源码为唯一功能基线，共用 `app_source` 中的 Python/Streamlit 工具、内置水稻注释数据和加密多组学数据包。Windows 原生外壳使用 .NET 10 WPF 与 Microsoft Edge WebView2，最终用户无需安装 Python、Conda、OpenSSL 或 .NET。
+Windows 版以已验证的 macOS `1.9.8 Build 27` 发布源码为唯一功能基线，共用 `app_source` 中的 Python/Streamlit 工具、内置水稻注释数据和加密多组学数据包。Windows 原生外壳使用 .NET 10 WPF 与 Microsoft Edge WebView2，最终用户无需安装 Python、Conda、OpenSSL 或 .NET。
 
 ## 支持范围
 
@@ -54,8 +54,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\script\build_windows.ps1 -
 
 构建结果位于 `dist\windows`：
 
-- `My-Bio-Tools-1.9.7-build26-win-x64-setup.exe`
-- `My-Bio-Tools-1.9.7-build26-win-x64-portable.zip`
+- `My-Bio-Tools-1.9.8-build27-win-x64-setup.exe`
+- `My-Bio-Tools-1.9.8-build27-win-x64-portable.zip`
 - `SHA256SUMS.txt`
 - `version-manifest.json`
 - `windows-build-requirements.lock.txt`

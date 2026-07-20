@@ -1,7 +1,7 @@
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 9, 7, 26),
-    prodvers=(1, 9, 7, 26),
+    filevers=(1, 9, 8, 27),
+    prodvers=(1, 9, 8, 27),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,12 +16,12 @@ VSVersionInfo(
         [
           StringStruct(u'CompanyName', u'Wu Lab'),
           StringStruct(u'FileDescription', u'My Bio Tools local Streamlit backend'),
-          StringStruct(u'FileVersion', u'1.9.7.26'),
+          StringStruct(u'FileVersion', u'1.9.8.27'),
           StringStruct(u'InternalName', u'BioToolsBackend'),
           StringStruct(u'LegalCopyright', u'Wu Lab team'),
           StringStruct(u'OriginalFilename', u'BioToolsBackend.exe'),
           StringStruct(u'ProductName', u'My Bio Tools'),
-          StringStruct(u'ProductVersion', u'1.9.7 Build 26')
+          StringStruct(u'ProductVersion', u'1.9.8 Build 27')
         ]
       )
     ]),

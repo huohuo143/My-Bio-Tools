@@ -97,10 +97,10 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         "UseWPF": "true",
         "RuntimeIdentifier": "win-x64",
         "SelfContained": "true",
-        "Version": "1.9.7",
-        "AssemblyVersion": "1.9.7.26",
-        "FileVersion": "1.9.7.26",
-        "InformationalVersion": "1.9.7+build.26",
+        "Version": "1.9.8",
+        "AssemblyVersion": "1.9.8.27",
+        "FileVersion": "1.9.8.27",
+        "InformationalVersion": "1.9.8+build.27",
     }
     for key, expected in expected_values.items():
         if values.get(key) != expected:
@@ -189,11 +189,11 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
     )
     if missing_interpretation_modules:
         failures.append(
-            "Windows PyInstaller spec misses 1.9.7 modules: "
+            "Windows PyInstaller spec misses required interpretation modules: "
             + ", ".join(missing_interpretation_modules)
         )
     else:
-        checks.append("1.9.7 multi-provider and authenticated-omics hidden imports")
+        checks.append("multi-provider and authenticated-omics hidden imports")
     if (
         "module_collection_mode" not in windows_spec
         or '"docx": "pyz+py"' not in windows_spec
@@ -217,8 +217,9 @@ def validate_project(failures: list[str], checks: list[str]) -> tuple[int, int]:
         "test_multi_provider_api.py",
         "test_backend_license_gate.py",
         "MyBioTools.Windows.Smoke",
-        '$Version = "1.9.7"',
-        "$Build = 26",
+        '$Version = "1.9.8"',
+        "$Build = 27",
+        "test_report_clarity.py",
         "拒绝把私钥写入 Windows 分发包",
         "PrivilegesRequired=lowest",
         "ArchitecturesAllowed=x64compatible",
@@ -326,10 +327,10 @@ def validate_staged_app(
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
             if (
-                manifest.get("version") != "1.9.7"
-                or manifest.get("build") != 26
+                manifest.get("version") != "1.9.8"
+                or manifest.get("build") != 27
                 or manifest.get("platform") != "win-x64"
-                or manifest.get("baseline") != "macOS 1.9.7 Build 26"
+                or manifest.get("baseline") != "macOS 1.9.8 Build 27"
             ):
                 failures.append("staged version manifest has unexpected version or platform")
         except Exception as exc:
@@ -359,10 +360,10 @@ def write_report(
     staged_app: Path | None,
 ) -> None:
     lines = [
-        "# My Bio Tools 1.9.7 Build 26 Windows 构建验证报告",
+        "# My Bio Tools 1.9.8 Build 27 Windows 构建验证报告",
         "",
         f"- 源码目录：`{ROOT}`",
-        "- 功能基线：`macOS 1.9.7 Build 26`",
+        "- 功能基线：`macOS 1.9.8 Build 27`",
         f"- 分发目录：`{staged_app}`" if staged_app else "- 分发目录：未提供，仅验证源码",
         f"- 通过检查：{len(checks)}",
         f"- 失败检查：{len(failures)}",

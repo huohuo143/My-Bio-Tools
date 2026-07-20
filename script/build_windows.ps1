@@ -19,8 +19,8 @@ $env:PYTHONIOENCODING = "utf-8"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "1.9.7"
-$Build = 26
+$Version = "1.9.8"
+$Build = 27
 $RuntimeInstallerName = "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 $RuntimeInstallerUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 $Venv = Join-Path $Root ".build-venv-win"
@@ -170,6 +170,7 @@ if (-not $SkipTests) {
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_streamlit_workflows.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_codex_chatgpt.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_report_interpretation.py"))
+    Invoke-Native $VenvPython @((Join-Path $Root "script\test_report_clarity.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_multi_provider_api.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_backend_license_gate.py"))
     if ($RunLiveTests) {
@@ -278,7 +279,7 @@ $manifest = [ordered]@{
     product = "My Bio Tools"
     version = $Version
     build = $Build
-    baseline = "macOS 1.9.7 Build 26"
+    baseline = "macOS 1.9.8 Build 27"
     platform = "win-x64"
     python = "3.12"
     dotnet = $dotnetVersionText

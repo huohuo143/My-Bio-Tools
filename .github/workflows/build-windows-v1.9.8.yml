@@ -1,4 +1,4 @@
-name: Build and accept Windows 1.9.7 Build 26
+name: Build and accept Windows 1.9.8 Build 27
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-1.9.7-build26
+  group: windows-1.9.8-build27
   cancel-in-progress: false
 
 jobs:
@@ -83,7 +83,7 @@ jobs:
       - name: Install and accept installer package
         shell: pwsh
         run: |
-          $setup = Resolve-Path "dist/windows/My-Bio-Tools-1.9.7-build26-win-x64-setup.exe"
+          $setup = Resolve-Path "dist/windows/My-Bio-Tools-1.9.8-build27-win-x64-setup.exe"
           $installDir = Join-Path $env:RUNNER_TEMP "My Bio Tools Installed"
           $installLog = Join-Path $env:RUNNER_TEMP "my-bio-tools-install.log"
           $arguments = @(
@@ -107,7 +107,7 @@ jobs:
         shell: pwsh
         run: |
           $portableDir = Join-Path $env:RUNNER_TEMP "My Bio Tools Portable"
-          Expand-Archive "dist/windows/My-Bio-Tools-1.9.7-build26-win-x64-portable.zip" $portableDir -Force
+          Expand-Archive "dist/windows/My-Bio-Tools-1.9.8-build27-win-x64-portable.zip" $portableDir -Force
           ./script/test_windows_runtime.ps1 -AppDir $portableDir
 
       - name: Perform authorized login and protected runtime acceptance
@@ -132,8 +132,8 @@ jobs:
         run: |
           $dist = Resolve-Path "dist/windows"
           $expected = @(
-            "My-Bio-Tools-1.9.7-build26-win-x64-setup.exe",
-            "My-Bio-Tools-1.9.7-build26-win-x64-portable.zip"
+            "My-Bio-Tools-1.9.8-build27-win-x64-setup.exe",
+            "My-Bio-Tools-1.9.8-build27-win-x64-portable.zip"
           )
           foreach ($name in $expected) {
             $path = Join-Path $dist $name
@@ -143,8 +143,8 @@ jobs:
           }
 
           $manifest = Get-Content (Join-Path $dist "version-manifest.json") -Raw | ConvertFrom-Json
-          if ($manifest.version -ne "1.9.7" -or $manifest.build -ne 26 -or $manifest.platform -ne "win-x64") {
-            throw "Version manifest does not identify 1.9.7 Build 26 for win-x64."
+          if ($manifest.version -ne "1.9.8" -or $manifest.build -ne 27 -or $manifest.platform -ne "win-x64") {
+            throw "Version manifest does not identify 1.9.8 Build 27 for win-x64."
           }
           "" >> $env:GITHUB_STEP_SUMMARY
           "Installer, portable package, guest UI startup, and shutdown cleanup passed." >> $env:GITHUB_STEP_SUMMARY
@@ -152,7 +152,7 @@ jobs:
       - name: Upload private Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: My-Bio-Tools-1.9.7-build26-win-x64
+          name: My-Bio-Tools-1.9.8-build27-win-x64
           path: dist/windows/
           if-no-files-found: error
           retention-days: 7
