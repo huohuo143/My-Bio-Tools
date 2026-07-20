@@ -599,6 +599,15 @@ def _llm_payload(bundle: "AnalysisBundle", rule_rows: list[dict[str, object]]) -
             ("msu_locus", "dataset_name", "treatment", "time_label", "assay", "feature_type", "abundance", "unit", "site_position", "site_residue"),
             40,
         ),
+        "multiomics_dataset_summaries": selected(
+            bundle.lab_omics_dataset_summaries,
+            (
+                "msu_locus", "short_label", "dataset_name", "accession", "category", "assay",
+                "background", "treatment", "display_tier", "n_control", "n_treatment",
+                "effect_value", "pvalue", "padj", "quantitation_unit", "availability_note",
+            ),
+            60,
+        ),
         "haplotype_summary": safe_haplotypes,
         "protein_domains": selected(bundle.protein_domains, ("protein_id", "database", "accession", "name", "description", "feature_type", "start", "end", "go_terms", "pathways", "status", "source_url"), 30),
         "functional_sites": selected(bundle.functional_sites, ("protein_id", "database", "accession", "site_type", "description", "start", "end", "residue", "status", "source_url"), 30),
@@ -802,17 +811,21 @@ def normalize_ai_synthesis(payload: dict[str, object], bundle: "AnalysisBundle")
 def _llm_prompt(bundle: "AnalysisBundle", rule_rows: list[dict[str, object]]) -> tuple[str, str]:
     evidence = json.dumps(_llm_payload(bundle, rule_rows), ensure_ascii=False, separators=(",", ":"))
     system = (
-        "你是植物分子生物学科研报告助手。只能使用用户提供的结构化证据，不得补写数据库外事实、"
+        "你是植物分子生物学科研报告助手。使用清晰、准确的中文科研综述体，面向植物分子生物学研究者撰写。"
+        "每段第一句先给出该段的明确判断，随后依次说明证据、机制解释与限定条件；每段建议 2–5 句。"
+        "避免反复使用‘本报告’、‘结构化证据’、‘AI增强’、‘提示’、‘值得注意的是’、‘综上所述’等模板句，不写宣传性或拟人化表述。"
+        "只能使用用户提供的结构化证据，不得补写数据库外事实、"
         "不得把相关性或计算预测写成因果。请区分已有证据、组学支持、合理推测和需实验验证。"
         "你将同时看到 Word 正文、Excel 工作表与 ZIP 清单所代表的同源结构化信息。"
         "重点解释基因的分子身份、主要功能、上游—分子事件—下游—表型机制链、场景分支和可区分的实验。"
         "必须区分已知机制、本次组学观察与新假设；PTM位点不得与总蛋白混同。"
-        "每个事实性结论必须引用 mechanism_claims 中存在的 evidence_id。"
+        "每个事实性结论必须引用 mechanism_claims 中存在的 evidence_id。不得自行生成、猜测或改写参考文献；只返回 evidence_id，作者—年份引文由程序生成。"
         "不得调用工具、读取本机文件、联网搜索或引用结构化证据以外的内容。"
         "返回严格JSON，字段为 executive_summary、multiomics_interpretation、haplotype_interpretation、"
         "integrated_hypotheses，并完整返回 gene_identity、core_function、mechanism_chains、context_branches、"
         "omics_integration、testable_hypotheses、knowledge_gaps、references。"
         "mechanism_chains 限 3–5 条，引用只能使用输入中的 evidence_id。"
+        "testable_hypotheses 的每一项必须明确给出 hypothesis、rationale、experiment（材料/处理）、controls、readouts 和 discriminating_result，语句简洁。"
     )
     return system, "请解读以下 My Bio Tools 结构化结果：\n" + evidence
 

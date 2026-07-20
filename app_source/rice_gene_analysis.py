@@ -1231,6 +1231,7 @@ def execute_analysis_request(
             bundle.lab_omics_qc_metrics = list(result["qc_metrics"])
             bundle.lab_omics_dataset_context = list(result["dataset_context"])
             bundle.lab_omics_dataset_registry = list(result["dataset_registry"])
+            bundle.lab_omics_dataset_summaries = list(result["dataset_summaries"])
             charts, raw = build_lab_omics_artifacts(result)
             deep_charts.update(charts)
             deep_raw.update(raw)
@@ -1241,7 +1242,10 @@ def execute_analysis_request(
             )
             reporter.complete(
                 "lab_omics",
-                f"命中可统计差异 {len(bundle.lab_omics_differential)} 条、定量 {len(bundle.lab_omics_profiles)} 条、论文证据 {len(bundle.lab_omics_published_evidence)} 条",
+                f"命中数据集 {len([row for row in bundle.lab_omics_dataset_summaries if row.get('display_tier') != 'published_evidence'])} 个；"
+                f"有差异统计 {len([row for row in bundle.lab_omics_dataset_summaries if row.get('display_tier') == 'differential'])} 个，"
+                f"仅定量观察 {len([row for row in bundle.lab_omics_dataset_summaries if row.get('display_tier') == 'abundance_only'])} 个，"
+                f"论文证据 {len([row for row in bundle.lab_omics_dataset_summaries if row.get('display_tier') == 'published_evidence'])} 个",
                 warning=not bool(bundle.lab_omics_differential or bundle.lab_omics_profiles or bundle.lab_omics_published_evidence),
             )
         except (LabOmicsUnavailable, ValueError) as exc:
@@ -1788,7 +1792,7 @@ def _render_ai_synthesis(bundle: AnalysisBundle) -> None:
 
 
 def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
-    """Render the v1.9.7 evidence-led result surface."""
+    """Render the v1.9.8 evidence-led result surface."""
     overview_tab, evidence_tab, expression_tab, sequence_tab, regulation_tab, ai_tab, conclusion_tab = st.tabs(
         ["总览", "功能与证据", "表达", "序列与结构", "调控与变异", "AI 深度解读", "结论与来源"]
     )
@@ -1806,7 +1810,8 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
         else:
             st.info("未形成可用的 ID 映射。")
         with st.container(border=True):
-            st.markdown(f"**摘要**　RiceData {len(bundle.ricedata_rows)} 条 · eFP {len(bundle.efp_rows)} 条 · 可统计多组学 {len(bundle.lab_omics_differential)} 条 · 论文组学证据 {len(bundle.lab_omics_published_evidence)} 条 · 定位预测 {len(bundle.predictions)} 条 · 变异 {len(bundle.variants)} 条")
+            primary_summary_ids = {str(row.get("dataset_id")) for row in bundle.lab_omics_dataset_summaries if row.get("display_tier") in {"differential", "abundance_only"}}
+            st.markdown(f"**摘要**　RiceData {len(bundle.ricedata_rows)} 条 · eFP {len(bundle.efp_rows)} 条 · 多组学命中 {len(primary_summary_ids)} 个数据集 · 论文组学证据 {len(bundle.lab_omics_published_evidence)} 条 · 定位预测 {len(bundle.predictions)} 条 · 变异 {len(bundle.variants)} 条")
             severe = [warning for warning in bundle.warnings if any(token in warning for token in ("assembly", "REF", "失败", "一对多", "不一致"))]
             st.caption(f"可能改变解释的主要警告：{len(severe)} 项。完整信息见“结论与来源”。")
         st.subheader("报告解读摘要")
@@ -1880,23 +1885,47 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
 
         st.divider()
         st.subheader("水稻多组学证据")
-        st.caption("主组学区仅包含有生物学重复的可统计数据；论文报告结果单独展示。正log2FC表示treatment/control上调。")
-        st.markdown("#### 可统计组学数据")
+        st.caption("主组学区分为“差异统计”与“仅定量观察”；论文证据单独展示。正 log2FC 表示 treatment/control 上调，不从丰度值伪造 log2FC。")
+        st.markdown("#### 分层多组学数据")
         if bundle.lab_omics_differential or bundle.lab_omics_profiles:
-            primary_datasets = [row for row in bundle.lab_omics_datasets if row.get("search_section") == "primary"]
+            summaries = [row for row in bundle.lab_omics_dataset_summaries if row.get("display_tier") in {"differential", "abundance_only"}]
+            matched_ids = {str(row.get("dataset_id")) for row in summaries}
+            differential_ids = {str(row.get("dataset_id")) for row in summaries if row.get("display_tier") == "differential"}
+            abundance_only_ids = {str(row.get("dataset_id")) for row in summaries if row.get("display_tier") == "abundance_only"}
+            published_ids = {str(row.get("dataset_id")) for row in bundle.lab_omics_dataset_summaries if row.get("display_tier") == "published_evidence"}
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("数据集", len(primary_datasets))
-            c2.metric("比较", len({str(row.get('comparison_id')) for row in bundle.lab_omics_differential}))
-            c3.metric("差异记录", len(bundle.lab_omics_differential))
-            c4.metric("定量记录", len(bundle.lab_omics_profiles))
+            c1.metric("命中数据集", len(matched_ids))
+            c2.metric("有差异统计", len(differential_ids))
+            c3.metric("仅定量观察", len(abundance_only_ids))
+            c4.metric("论文证据", len(published_ids))
             cross_heatmap = "lab_omics/heatmap_cross_project_log2fc.png"
             if cross_heatmap in deep_charts:
-                st.image(deep_charts[cross_heatmap], caption="Gene × treatment source log2FC heatmap; ordered conditions; missing values in gray")
-            differential_frame = pd.DataFrame(bundle.lab_omics_differential)
-            if not differential_frame.empty:
-                dataset_options = list(dict.fromkeys(str(value) for value in differential_frame["dataset_name"] if value))
-                selected_dataset = st.selectbox("多组学数据集", dataset_options, key=f"lab_omics_dataset_{id(bundle)}")
-                selected_rows = differential_frame[differential_frame["dataset_name"] == selected_dataset]
+                st.image(deep_charts[cross_heatmap], caption="Source log2FC; * denotes source padj ≤ 0.05; gray NA denotes unavailable differential statistics")
+            overview_pngs = [name for name in sorted(deep_charts) if name.startswith("lab_omics/overview_") and name.endswith("_response.png")]
+            if overview_pngs:
+                chosen_overview = st.selectbox(
+                    "响应类型汇总图",
+                    overview_pngs,
+                    format_func=lambda value: "昆虫取食响应" if "_insect_" in value else "病毒响应",
+                    key=f"lab_omics_overview_plot_{id(bundle)}",
+                )
+                st.image(deep_charts[chosen_overview], caption="Biological replicates and mean ± SD; every panel retains its own source unit and scale")
+            summary_by_dataset = {str(row.get("dataset_id")): row for row in summaries}
+            dataset_options = list(summary_by_dataset)
+            if dataset_options:
+                selected_dataset = st.selectbox(
+                    "多组学数据集",
+                    dataset_options,
+                    format_func=lambda value: f"{str(summary_by_dataset[value].get('short_label') or '').replace(chr(10), ' · ')} · {summary_by_dataset[value].get('display_tier_label')}",
+                    key=f"lab_omics_dataset_{id(bundle)}",
+                )
+                summary = summary_by_dataset[selected_dataset]
+                response_key = f"lab_omics/response_{re.sub(r'[^A-Za-z0-9_.-]+', '_', str(summary.get('msu_locus') or 'gene'))}_{re.sub(r'[^A-Za-z0-9_.-]+', '_', selected_dataset)}.png"
+                if response_key in deep_charts:
+                    st.image(deep_charts[response_key], caption=f"{summary.get('dataset_name')} · {summary.get('accession') or '无独立 accession'}")
+                st.dataframe(pd.DataFrame([{key: value for key, value in summary.items() if key != "replicate_groups"}]), width="stretch", hide_index=True)
+                differential_frame = pd.DataFrame(bundle.lab_omics_differential)
+                selected_rows = differential_frame[differential_frame["dataset_id"] == selected_dataset] if not differential_frame.empty and "dataset_id" in differential_frame else pd.DataFrame()
                 columns = [
                     value for value in [
                         "msu_locus", "msu_model", "rap_gene", "comparison_name", "assay", "log2fc",
@@ -1904,19 +1933,24 @@ def _show_results(bundle: AnalysisBundle, artifacts: dict[str, object]) -> None:
                         "modified_sequence", "descriptive", "replicate_note", "source_file", "source_sheet", "source_row",
                     ] if value in selected_rows.columns
                 ]
-                st.dataframe(selected_rows[columns], width="stretch", hide_index=True)
+                if not selected_rows.empty:
+                    st.dataframe(selected_rows[columns], width="stretch", hide_index=True)
             project_pngs = [name for name in sorted(deep_charts) if name.startswith("lab_omics/project_") and name.endswith("_abundance_heatmap.png")]
             if project_pngs:
+                project_label_lookup = {
+                    f"lab_omics/project_{re.sub(r'[^A-Za-z0-9_.-]+', '_', dataset_id)}_abundance_heatmap.png": str(row.get("short_label") or row.get("dataset_name") or "").replace("\n", " · ")
+                    for dataset_id, row in summary_by_dataset.items()
+                }
                 chosen_plot = st.selectbox(
                     "项目内样本热图",
                     project_pngs,
-                    format_func=lambda value: value.removeprefix("lab_omics/project_").removesuffix("_abundance_heatmap.png"),
+                    format_func=lambda value: project_label_lookup.get(value, "项目内定量图"),
                     key=f"lab_omics_project_plot_{id(bundle)}",
                 )
                 st.image(deep_charts[chosen_plot], caption="Within-project abundance pattern; row z-score only inside this dataset")
             with st.expander("完整项目、样本与定量明细"):
-                if bundle.lab_omics_datasets:
-                    st.dataframe(pd.DataFrame(primary_datasets), width="stretch", hide_index=True)
+                if bundle.lab_omics_dataset_summaries:
+                    st.dataframe(pd.DataFrame([{key: value for key, value in row.items() if key != "replicate_groups"} for row in summaries]), width="stretch", hide_index=True)
                 if bundle.lab_omics_samples:
                     st.dataframe(pd.DataFrame(bundle.lab_omics_samples), width="stretch", hide_index=True)
                 if bundle.lab_omics_profiles:

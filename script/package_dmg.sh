@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="My Bio Tools"
-VERSION="${VERSION:-1.9.7}"
+VERSION="${VERSION:-1.9.8}"
 ARCH="$(uname -m)"
 DIST_DIR="${DIST_DIR_OVERRIDE:-$ROOT_DIR/dist}"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"

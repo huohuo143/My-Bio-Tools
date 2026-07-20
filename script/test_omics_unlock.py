@@ -40,6 +40,10 @@ class OmicsUnlockTests(unittest.TestCase):
         cls.key = KEY_FILE.read_text(encoding="ascii").strip()
         cls.manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
 
+    def setUp(self) -> None:
+        # Unlock tests must not inherit a caller-provided plaintext database.
+        os.environ.pop("MY_BIO_TOOLS_OMICS_DB", None)
+
     def tearDown(self) -> None:
         os.environ.pop("MY_BIO_TOOLS_OMICS_DB", None)
         os.environ.pop("MY_BIO_TOOLS_OMICS_KEY_B64", None)
@@ -57,7 +61,7 @@ class OmicsUnlockTests(unittest.TestCase):
                 self.assertEqual(connection.execute("PRAGMA quick_check").fetchone()[0], "ok")
                 self.assertEqual(
                     connection.execute("SELECT COUNT(*) FROM datasets WHERE inclusion_status='included'").fetchone()[0],
-                    16,
+                    17,
                 )
             finally:
                 connection.close()

@@ -196,6 +196,7 @@ class AnalysisBundle:
     lab_omics_qc_metrics: list[dict[str, object]] = field(default_factory=list)
     lab_omics_dataset_context: list[dict[str, object]] = field(default_factory=list)
     lab_omics_dataset_registry: list[dict[str, object]] = field(default_factory=list)
+    lab_omics_dataset_summaries: list[dict[str, object]] = field(default_factory=list)
     protein_domains: list[dict[str, object]] = field(default_factory=list)
     functional_sites: list[dict[str, object]] = field(default_factory=list)
     transcript_models: list[dict[str, object]] = field(default_factory=list)
