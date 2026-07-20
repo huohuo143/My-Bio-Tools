@@ -232,7 +232,7 @@ def analyze_protein_domains(
 ) -> tuple[list[dict[str, object]], list[dict[str, object]], dict[str, bytes], list[str]]:
     items = [(str(identifier), re.sub(r"\s+", "", str(sequence)).upper().rstrip("*")) for identifier, sequence in proteins]
     client = session or requests.Session()
-    client.headers.update({"User-Agent": "MyBioTools/1.9.7", "Accept": "application/json"})
+    client.headers.update({"User-Agent": "MyBioTools/1.9.8", "Accept": "application/json"})
     domains: list[dict[str, object]] = []
     sites: list[dict[str, object]] = []
     raw_artifacts: dict[str, bytes] = {}

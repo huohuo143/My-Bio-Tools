@@ -75,7 +75,7 @@ struct AuthAPIClient {
             let platform: String; let deviceName: String; let appVersion: String
         }
         let deviceName = Host.current().localizedName ?? "Mac"
-        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.9.7"
+        let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.9.8"
         let response: SessionResponse = try await request(
             "/api/v1/login",
             method: "POST",

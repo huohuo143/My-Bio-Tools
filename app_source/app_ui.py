@@ -7,7 +7,7 @@ import html
 import streamlit as st
 
 
-APP_VERSION = "1.9.7"
+APP_VERSION = "1.9.8"
 
 
 def apply_app_style(appearance_mode: str = "system") -> None:

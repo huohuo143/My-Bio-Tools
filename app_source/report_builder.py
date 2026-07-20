@@ -34,9 +34,9 @@ from rice_efp import EFP_DATA_SOURCES, EFP_SOURCE_GLOSSARY, EFP_GUIDE_URL, EFP_U
 from report_interpretation import build_evidence_synthesis, build_rule_interpretations
 
 
-# Use the native FangSong family name on each supported platform so Word and
-# LibreOffice resolve Chinese glyphs without missing-font substitution.
-CHINESE_FONT = "仿宋" if sys.platform == "win32" else "华文仿宋"
+# Use the native FangSong family name on each supported platform. Microsoft
+# Word for macOS resolves STFangsong correctly; Windows uses the localized name.
+CHINESE_FONT = "仿宋" if sys.platform == "win32" else "STFangsong"
 WESTERN_FONT = "Times New Roman"
 EXCEL_FONT = "Arial"
 BODY_SIZE = 10.5
@@ -281,6 +281,31 @@ def _add_callout(doc: Document, label: str, text: str, *, fill: str = CALLOUT_FI
     doc.add_paragraph().paragraph_format.space_after = Pt(0)
 
 
+def _add_scientific_paragraph(
+    doc: Document,
+    text: object,
+    *,
+    size: float = BODY_SIZE,
+    first_line: bool = True,
+    color: RGBColor | None = None,
+) -> None:
+    """Add readable review-style prose; reserve boxes for warnings that change interpretation."""
+    paragraph = doc.add_paragraph()
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    paragraph.paragraph_format.line_spacing = 1.333
+    paragraph.paragraph_format.space_after = Pt(8)
+    if first_line:
+        paragraph.paragraph_format.first_line_indent = Inches(0.29)
+    run = paragraph.add_run(str(text or "—"))
+    _format_run(run, size=size, color=color or RGBColor(23, 32, 51))
+
+
+def _add_labelled_scientific_paragraph(doc: Document, label: str, text: object) -> None:
+    heading = doc.add_heading(label, level=3)
+    heading.paragraph_format.keep_with_next = True
+    _add_scientific_paragraph(doc, text)
+
+
 def _interpretation_rows(bundle: AnalysisBundle, sections: set[str] | None = None) -> list[dict[str, object]]:
     rows = bundle.interpretations or build_rule_interpretations(bundle)
     return [row for row in rows if sections is None or str(row.get("section") or "") in sections]
@@ -291,16 +316,14 @@ def _add_interpretation_blocks(doc: Document, bundle: AnalysisBundle, sections: 
         ai_assisted = str(row.get("section") or "").startswith("ai_")
         label = str(row.get("title") or "结果解读")
         if ai_assisted:
-            label += "（AI辅助推断·待人工核验）"
-        text = (
-            f"{row.get('interpretation') or ''}\n"
-            f"证据依据：{row.get('evidence_basis') or '—'}；"
-            f"证据等级：{row.get('evidence_level') or '—'}；"
-            f"置信度：{row.get('confidence') or '—'}。\n"
-            f"解读边界：{row.get('limitations') or '—'}\n"
-            f"建议下一步：{row.get('recommended_action') or '—'}"
+            label = label.replace("AI增强", "深度")
+        _add_labelled_scientific_paragraph(doc, label, row.get("interpretation") or "当前无可用解读。")
+        _add_scientific_paragraph(
+            doc,
+            f"证据依据：{row.get('evidence_basis') or '—'}。证据等级：{row.get('evidence_level') or '—'}；"
+            f"置信度：{row.get('confidence') or '—'}。限定条件：{row.get('limitations') or '—'}。"
+            f"后续建议：{row.get('recommended_action') or '—'}。",
         )
-        _add_callout(doc, label, text, fill=CAUTION_FILL if ai_assisted else CALLOUT_FILL)
 
 
 def _compact_text(value: object, limit: int = 90) -> str:
@@ -415,6 +438,37 @@ def _add_chart_figures(
     return len(png_names)
 
 
+def _add_lab_omics_response_figures(doc: Document, charts: dict[str, bytes], summaries: list[dict[str, object]]) -> int:
+    added = 0
+    for summary in summaries:
+        if not summary.get("replicate_groups"):
+            continue
+        safe_locus = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(summary.get("msu_locus") or "gene"))
+        safe_dataset = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(summary.get("dataset_id") or "dataset"))
+        name = f"lab_omics/response_{safe_locus}_{safe_dataset}.png"
+        if name not in charts:
+            continue
+        added += 1
+        short_label = str(summary.get("short_label") or "Response").replace("\n", " · ")
+        source_label = " / ".join(
+            value for value in [str(summary.get("accession") or ""), str(summary.get("dataset_name") or "")] if value
+        )
+        caption_text = f"Figure A3.{added}  {short_label}"
+        if source_label:
+            caption_text += f" · {source_label}"
+        caption = doc.add_paragraph()
+        caption.paragraph_format.keep_with_next = True
+        caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _format_run(caption.add_run(caption_text), size=9, bold=True, color=RGBColor(51, 65, 85))
+        doc.add_picture(io.BytesIO(charts[name]), width=Inches(6.25))
+        picture = doc.paragraphs[-1]
+        picture.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        picture.paragraph_format.keep_together = True
+        picture.paragraph_format.space_after = Pt(6)
+        _set_picture_alt(picture, f"{short_label}; {source_label}; biological replicates and mean plus or minus SD")
+    return added
+
+
 def _friendly_chart_title(name: str) -> str:
     """Translate internal artifact filenames into reader-facing figure captions."""
     stem = name.rsplit("/", 1)[-1].removesuffix(".png")
@@ -475,7 +529,7 @@ def _start_chapter(doc: Document, number: str, title: str, purpose: str) -> None
     doc.add_page_break()
     heading = doc.add_heading(f"{number}. {title}", level=1)
     heading.paragraph_format.keep_with_next = True
-    _add_callout(doc, "本章目的", purpose)
+    _add_scientific_paragraph(doc, purpose, first_line=False, color=MUTED)
 
 
 def _add_table_or_status(
@@ -955,7 +1009,7 @@ def build_word_report(
     prediction_charts: dict[str, bytes] | None = None,
     deep_charts: dict[str, bytes] | None = None,
 ) -> bytes:
-    """Build the v1.9.7 evidence-led report with seven coherent chapters."""
+    """Build the v1.9.8 evidence-led report with seven coherent chapters."""
     doc = Document()
     _configure_styles(doc)
     section = doc.sections[0]
@@ -968,7 +1022,7 @@ def build_word_report(
     section.header_distance = Inches(0.492)
     section.footer_distance = Inches(0.492)
     header = section.header.paragraphs[0]
-    header.text = "My Bio Tools v1.9.7 · 水稻基因一站式分析"
+    header.text = "My Bio Tools v1.9.8 · 水稻基因一站式分析"
     _format_paragraph_runs(header, size=9, color=MUTED)
     _add_page_number(section.footer.paragraphs[0])
 
@@ -995,7 +1049,7 @@ def build_word_report(
     _start_chapter(doc, "1", "基因概览与 ID 映射", "先确认输入基因的统一身份、RAP/MSU/Transcript 对应关系、GeneSymbol、assembly 和数据完整度。")
     matched_sequences = sum(record.status == "matched" for record in bundle.sequences)
     serious_warnings = [warning for warning in bundle.warnings if any(token in warning for token in ("assembly", "REF", "失败", "一对多", "不一致"))]
-    _add_callout(doc, "关键结论", f"本次解析 {len(bundle.inputs)} 个输入，获得 {len(bundle.mechanism_claims)} 条可追溯功能/机制证据、{len(bundle.genetic_evidence)} 条遗传证据、{len(bundle.literature_rows)} 篇文献、{len(bundle.efp_rows)} 条表达记录和 {matched_sequences} 条有效序列；需要优先注意 {len(serious_warnings)} 项可能改变解释的警告。")
+    _add_labelled_scientific_paragraph(doc, "数据覆盖", f"本次解析 {len(bundle.inputs)} 个输入，获得 {len(bundle.mechanism_claims)} 条可追溯功能/机制证据、{len(bundle.genetic_evidence)} 条遗传证据、{len(bundle.literature_rows)} 篇文献、{len(bundle.efp_rows)} 条表达记录和 {matched_sequences} 条有效序列。其中 {len(serious_warnings)} 项警告可能改变后续解释，已在相应章节单独标出。")
     identity_rows = []
     for mapping in bundle.mapping_rows or [{"input_id": value, "status": "not_resolved"} for value in bundle.inputs]:
         rice = next((row for row in bundle.ricedata_rows if str(row.get("RAP_Locus") or "").casefold() == str(mapping.get("resolved_rap_gene") or "").casefold()), {})
@@ -1011,7 +1065,7 @@ def build_word_report(
 
     _start_chapter(doc, "2", "已知功能、突变体与关联文献", "把数据库功能描述、突变体/定位证据及其支持论文放在同一处，直接展示证据—文献对应关系。")
     linked_count = sum(bool(row.get("linked_dois")) for row in bundle.genetic_evidence)
-    _add_callout(doc, "关键结论", f"共整理 {len(bundle.mechanism_claims)} 条可追溯功能/机制证据和 {len(bundle.genetic_evidence)} 条遗传或功能证据，其中 {linked_count} 条遗传证据已映射到 DOI；RiceData 关联 {len(bundle.ricedata_references)} 篇论文。")
+    _add_labelled_scientific_paragraph(doc, "证据概况", f"共整理 {len(bundle.mechanism_claims)} 条可追溯功能/机制证据和 {len(bundle.genetic_evidence)} 条遗传或功能证据，其中 {linked_count} 条遗传证据已映射到 DOI；RiceData 关联 {len(bundle.ricedata_references)} 篇论文。")
     mechanism_rows = [{
         "id": row.get("evidence_id"), "level": row.get("evidence_level"),
         "context": row.get("context"), "statement": _compact_text(row.get("statement"), 120), "doi": row.get("dois"),
@@ -1030,7 +1084,7 @@ def build_word_report(
     _start_chapter(doc, "3", "表达模式与生物学场景", "集中判断高表达组织、处理响应和本次选择的数据集边界，不在正文重复完整 eFP 明细。")
     top_rows = expression_top_rows(bundle.efp_rows, limit=3)
     selected_sources = list(dict.fromkeys(record.data_source for record in bundle.efp_rows))
-    _add_callout(doc, "关键结论", f"本次覆盖 {len(selected_sources)} 个 eFP 数据源；正文展示每个基因/数据源的 Top 3 组织或处理。Absolute 表示同一数据集内的原始尺度丰度，不是 fold change，且不同数据源之间不能直接比较。")
+    _add_labelled_scientific_paragraph(doc, "表达数据概况", f"本次覆盖 {len(selected_sources)} 个 eFP 数据源；正文展示每个基因/数据源的 Top 3 组织或处理。Absolute 表示同一数据集内的原始尺度丰度，不是 fold change，且不同数据源之间不能直接比较。")
     expression_charts = dict(efp_charts or {})
     if not _add_first_png(doc, expression_charts, ("heatmap_", "bar_"), "3.1", "Selected Rice eFP expression profile"):
         _add_callout(doc, "主图状态", "本次没有可嵌入的 eFP 主图；可能未选择表达分析、ID 未映射或外部服务未返回定量表。", fill=CAUTION_FILL)
@@ -1038,55 +1092,58 @@ def build_word_report(
     _add_callout(doc, "注意事项", "RMA、MAS5 intensity 与官网未标明单位的 Expression Level 不能跨数据源比较。部分汇总型数据源的 SD 字段为 0，不代表没有细胞间或生物学变异；12 个数据源的来源、重复结构与完整边界见附录和 Excel。", fill=CAUTION_FILL)
 
     doc.add_heading("水稻多组学证据", level=2)
-    primary_datasets = [row for row in bundle.lab_omics_dataset_context if row.get("search_section") == "primary"]
-    published_datasets = [row for row in bundle.lab_omics_dataset_context if row.get("search_section") == "published_evidence"]
-    _add_callout(
+    primary_summaries = [row for row in bundle.lab_omics_dataset_summaries if row.get("display_tier") in {"differential", "abundance_only"}]
+    differential_summaries = [row for row in primary_summaries if row.get("display_tier") == "differential"]
+    abundance_only_summaries = [row for row in primary_summaries if row.get("display_tier") == "abundance_only"]
+    published_summaries = [row for row in bundle.lab_omics_dataset_summaries if row.get("display_tier") == "published_evidence"]
+    primary_dataset_count = len({str(row.get("dataset_id")) for row in primary_summaries})
+    differential_dataset_count = len({str(row.get("dataset_id")) for row in differential_summaries})
+    abundance_only_dataset_count = len({str(row.get("dataset_id")) for row in abundance_only_summaries})
+    published_dataset_count = len({str(row.get("dataset_id")) for row in published_summaries})
+    _add_labelled_scientific_paragraph(
         doc,
-        "可统计组学覆盖",
-        f"命中 {len(primary_datasets)} 个具有生物学重复的数据集、{len(bundle.lab_omics_differential)} 条差异记录和 {len(bundle.lab_omics_profiles)} 条项目内定量记录。主键为去model后缀的MSU locus；MSU model、RAP gene/model和原始ID逐条保留。",
+        "覆盖与证据分层",
+        f"本次共命中 {primary_dataset_count} 个具有生物学重复的定量数据集。其中 {differential_dataset_count} 个数据集提供可核验的差异统计，"
+        f"{abundance_only_dataset_count} 个数据集仅能展示对照与处理组定量；另有 {published_dataset_count} 个论文证据来源单独列出。"
+        "这三类证据分层展示，不将丰度值换算或冒充 log2FC。",
     )
     lab_charts = dict(deep_charts or {})
-    if not _add_first_png(doc, lab_charts, ("lab_omics/heatmap_cross_project_log2fc",), "3.2", "Wu Lab analysed multi-omics treatment-response heatmap"):
+    if not _add_first_png(doc, lab_charts, ("lab_omics/heatmap_cross_project_log2fc",), "3.2", "Differential response across all matched datasets"):
         _add_callout(doc, "多组学主图状态", "当前基因未命中具有生物学重复的主组学数据，或登录授权尚未解锁数据库。", fill=CAUTION_FILL)
+    _add_scientific_paragraph(doc, "图 3.2 中仅使用来源数据的 log2FC。格内数字为效应值，星号表示来源 padj ≤ 0.05；灰色 NA 表示该数据集虽有重复定量，但没有可核验的差异统计量。")
+    _add_first_png(doc, lab_charts, ("lab_omics/overview_",), "3.3", "Virus or insect response with biological replicates")
+    overview_names = [name for name in sorted(lab_charts) if name.startswith("lab_omics/overview_") and name.endswith(".png")]
+    if len(overview_names) > 1:
+        first_name = overview_names[0]
+        remaining = {name: payload for name, payload in lab_charts.items() if name in overview_names and name != first_name}
+        _add_first_png(doc, remaining, ("lab_omics/overview_",), "3.4", "Second response class with independent source scales")
+    _add_scientific_paragraph(doc, "图 3.3–3.4 的每个小图独立保留原始单位和数值尺度。彩色点表示生物学重复，黑色点及误差线表示均值 ± SD；不同项目之间不共用纵轴。")
     context_rows = []
-    for row in primary_datasets:
+    for row in primary_summaries:
+        effect = row.get("effect_value")
+        effect_text = f"{float(effect):.3f}" if effect is not None else "NA"
+        padj = row.get("padj")
         context_rows.append({
-            "dataset": _compact_text(row.get("display_name"), 30),
-            "background": row.get("host_background") or "【未报告】",
-            "treatment": row.get("treatment") or "【未报告】",
-            "replicates": row.get("replicate_note") or "【未报告】",
-            "origin": _compact_text(row.get("analysis_origin"), 34),
-            "qc": _compact_text(row.get("qc_summary"), 34),
+            "locus": row.get("msu_locus") or "—",
+            "label": str(row.get("short_label") or "").replace("\n", " / "),
+            "tier": row.get("display_tier_label") or row.get("display_tier"),
+            "repeat": f"{row.get('n_control') or 0}+{row.get('n_treatment') or 0}",
+            "effect": effect_text + ("*" if padj is not None and float(padj) <= 0.05 else ""),
+            "unit": row.get("quantitation_unit") or "—",
+            "dataset": _compact_text(" / ".join(value for value in [str(row.get("accession") or ""), str(row.get("dataset_name") or "")] if value), 52),
         })
     _add_table_or_status(
         doc, context_rows,
-        [("dataset", "Dataset"), ("background", "Background"), ("treatment", "Treatment"),
-         ("replicates", "Replicates"), ("origin", "Analysis origin"), ("qc", "QC")],
-        [1900, 1300, 1300, 1500, 2500, 2260],
-        "本次没有命中可统计组学数据集。",
-    )
-    lab_rows = []
-    for row in bundle.lab_omics_differential[:24]:
-        lab_rows.append({
-            "msu_locus": row.get("msu_locus"),
-            "dataset": _compact_text(row.get("dataset_name"), 32),
-            "assay": row.get("assay"),
-            "comparison": _compact_text(row.get("comparison_name"), 28),
-            "log2fc": f"{float(row['log2fc']):.3f}" if row.get("log2fc") is not None else "—",
-            "note": "描述性" if row.get("descriptive") else f"n={row.get('n_treatment') or '—'}+{row.get('n_control') or '—'}",
-        })
-    _add_table_or_status(
-        doc,
-        lab_rows,
-        [("msu_locus", "MSU locus"), ("dataset", "Dataset"), ("assay", "Assay"), ("comparison", "Comparison"), ("log2fc", "log2FC"), ("note", "Repeat")],
-        [1700, 2100, 1200, 2100, 900, 1360],
-        "本次没有具有生物学重复的多组学差异记录。",
+        [("locus", "MSU locus"), ("label", "Short condition"), ("tier", "Level"),
+         ("repeat", "Ctrl+Treat"), ("effect", "log2FC"), ("unit", "Source unit"), ("dataset", "Accession / full dataset")],
+        [1350, 1800, 1000, 800, 800, 1300, 2310],
+        "本次没有命中可展示的多组学数据集。",
     )
     _add_callout(doc, "可统计组学注意事项", "主组学区仅包含可核实生物学重复的数据。跨项目只使用各项目自身log2FC；不同品种、时间、处理或定量单位不合并为单一效应量。正log2FC表示treatment/control上调。", fill=CAUTION_FILL)
     doc.add_heading("已发表论文证据", level=3)
     _add_callout(
         doc, "证据边界",
-        f"命中 {len(published_datasets)} 个论文来源、{len(bundle.lab_omics_published_evidence)} 条基因证据。这些结果不进入主热图、候选基因统计评分或自动机制结论；不能据此独立判断统计显著性或因果机制。",
+        f"命中 {published_dataset_count} 个论文来源、{len(bundle.lab_omics_published_evidence)} 条基因证据。这些结果不进入主热图、候选基因统计评分或自动机制结论；不能据此独立判断统计显著性或因果机制。",
         fill=CAUTION_FILL,
     )
     published_rows = []
@@ -1114,7 +1171,7 @@ def build_word_report(
     _start_chapter(doc, "4", "序列、转录本与蛋白结构", "把输入 ID、RAP/MSU 映射、promoter/genomic/UTR/CDS/protein、真实基因结构和蛋白结构域合并到一条可追溯链。")
     cds_rows = [row for row in bundle.sequence_plot_rows if row.get("sequence_type") == "CDS"]
     consistent = sum(row.get("translation_consistency") == "consistent" for row in cds_rows)
-    _add_callout(doc, "关键结论", f"共获得 {len(bundle.sequences)} 条序列记录；{consistent}/{len(cds_rows)} 条 CDS 在已选蛋白记录中通过精确翻译一致性检查。RAP/MSU 基因组长度或边界不同时分别展示，不做坐标强行叠加。")
+    _add_labelled_scientific_paragraph(doc, "序列完整性", f"共获得 {len(bundle.sequences)} 条序列记录；{consistent}/{len(cds_rows)} 条 CDS 在已选蛋白记录中通过精确翻译一致性检查。RAP/MSU 基因组长度或边界不同时分别展示，不做坐标强行叠加。")
     visual_charts = dict(deep_charts or {})
     if not _add_first_png(doc, visual_charts, ("sequence_structure/sequence_relationship_", "sequence_structure/sequence_availability_"), "4.1", "Input-to-sequence relationship and source-specific lengths"):
         _add_callout(doc, "主图状态", "本次没有可嵌入的序列关系图；序列明细仍保留在 Excel/ZIP。", fill=CAUTION_FILL)
@@ -1148,7 +1205,7 @@ def build_word_report(
     _add_callout(doc, "注意事项", "序列关系图中的条形长度仅在核苷酸或蛋白类别内归一化；真实 exon/CDS/UTR 坐标以基因结构图和 Gene_Features sheet 为准。", fill=CAUTION_FILL)
 
     _start_chapter(doc, "5", "定位、调控与遗传变异", "依次回答蛋白可能作用位置、上游调控线索以及序列变异可能带来的影响。")
-    _add_callout(doc, "关键结论", f"定位预测 {len(bundle.predictions)} 条，启动子 TFBS {len(bundle.promoter_tfbs)} 条，miRNA/sRNA 靶点 {len(bundle.mirna_targets)} 条，变异 {len(bundle.variants)} 个，单倍型 {len(bundle.haplotypes)} 个。除数据库明确证据外，本章均为计算支持。")
+    _add_labelled_scientific_paragraph(doc, "计算线索", f"定位预测 {len(bundle.predictions)} 条，启动子 TFBS {len(bundle.promoter_tfbs)} 条，miRNA/sRNA 靶点 {len(bundle.mirna_targets)} 条，变异 {len(bundle.variants)} 个，单倍型 {len(bundle.haplotypes)} 个。除数据库明确证据外，本章均为计算支持。")
     localization_rows = [result.summary_row() for result in bundle.predictions[:12]]
     if localization_rows:
         doc.add_heading("可能作用位置", level=2)
@@ -1192,7 +1249,7 @@ def build_word_report(
         _add_callout(doc, "AI 深度报告", "完整机制链、场景分支、组学整合和可检验实验已单独生成为 AI 深度功能与机制解读报告。")
 
     _start_chapter(doc, "7", "方法、来源与警告", "集中记录数据库版本、检索日期、参数、失败服务和 assembly 边界，供复现与审阅。")
-    _add_callout(doc, "关键结论", f"共记录 {len(bundle.sources)} 个数据/服务来源和 {len(bundle.warnings)} 条警告。一般警告集中在本章；正文仅保留会改变解释的边界提示。")
+    _add_labelled_scientific_paragraph(doc, "可追溯性", f"共记录 {len(bundle.sources)} 个数据/服务来源和 {len(bundle.warnings)} 条警告。一般警告集中在本章；正文仅保留会改变解释的边界提示。")
     option_rows = [{"item": key, "value": _compact_text(value, 150)} for key, value in bundle.analysis_options.items()]
     _add_table_or_status(doc, option_rows, [("item", "参数"), ("value", "设置")], [2700, 6660], "未记录额外运行参数。")
     doc.add_heading("警告", level=2)
@@ -1231,8 +1288,33 @@ def build_word_report(
     doc.add_heading("A2. 完整文献与遗传证据", level=2)
     reference_rows = [{"reference_id": row.get("reference_id"), "doi": row.get("doi"), "pmid": row.get("pmid"), "year": row.get("year"), "title": _compact_text(row.get("title"), 115), "verification_status": row.get("verification_status")} for row in bundle.ricedata_references]
     _add_table_or_status(doc, reference_rows, [("reference_id", "Ref ID"), ("doi", "DOI"), ("pmid", "PMID"), ("year", "Year"), ("title", "Title"), ("verification_status", "Verification")], [800, 1500, 1000, 700, 3560, 1800], "本次未解析到 RiceData 关联文献。")
+    doc.add_heading("A3. 全部命中多组学数据集与项目图谱", level=2)
+    appendix_omics_rows = []
+    for row in bundle.lab_omics_dataset_summaries:
+        appendix_omics_rows.append({
+            "locus": row.get("msu_locus") or "—",
+            "dataset": row.get("dataset_name") or "—",
+            "accession": row.get("accession") or "—",
+            "tier": row.get("display_tier_label") or row.get("display_tier") or "—",
+            "context": " / ".join(value for value in [str(row.get("treatment") or ""), str(row.get("background") or "")] if value) or "—",
+            "repeat": f"{row.get('n_control') or 0}+{row.get('n_treatment') or 0}",
+            "unit": row.get("quantitation_unit") or "—",
+            "note": row.get("availability_note") or "—",
+        })
+    _add_table_or_status(
+        doc,
+        appendix_omics_rows,
+        [("locus", "MSU locus"), ("dataset", "Full dataset"), ("accession", "Accession"),
+         ("tier", "Level"), ("context", "Treatment / background"), ("repeat", "C+T"),
+         ("unit", "Unit"), ("note", "Availability")],
+        [1200, 1600, 1100, 900, 1600, 650, 1000, 1310],
+        "本次没有命中多组学数据集。",
+    )
+    if appendix_omics_rows:
+        _add_scientific_paragraph(doc, "下列每张图对应一个基因—数据集命中，完整 accession、数据集名和分层信息见上表；原始逐行明细与绘图数据保留在 Excel/ZIP。")
+        _add_lab_omics_response_figures(doc, lab_charts, bundle.lab_omics_dataset_summaries)
     if include_full_sequences:
-        doc.add_heading("A3. 完整序列", level=2)
+        doc.add_heading("A4. 完整序列", level=2)
         for sequence_type in SEQUENCE_TYPES:
             fasta = sequence_records_to_fasta(bundle.sequences, sequence_type)
             if not fasta:
@@ -1262,100 +1344,264 @@ def build_word_report(
     return output.getvalue()
 
 
-def build_ai_interpretation_word_report(bundle: AnalysisBundle) -> bytes:
-    """Build the standalone AI/evidence mechanism report from structured synthesis."""
+def _list_value(value: object) -> list[str]:
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value or "").strip()
+    if not text:
+        return []
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except json.JSONDecodeError:
+            pass
+    return [item.strip() for item in re.split(r"[,;]", text) if item.strip()]
+
+
+def _author_year(reference: dict[str, object]) -> str:
+    authors = reference.get("authors") or reference.get("author") or reference.get("first_author") or ""
+    if isinstance(authors, list):
+        authors = authors[0] if authors else ""
+    author_text = str(authors or "").strip()
+    first_author = re.split(r"\s*(?:,|;|\band\b)\s*", author_text, maxsplit=1, flags=re.I)[0].strip()
+    if first_author:
+        pieces = first_author.split()
+        first_author = pieces[-1] if len(pieces) > 1 else pieces[0]
+    year_text = str(reference.get("year") or reference.get("publication_year") or "")
+    year_match = re.search(r"(?:19|20)\d{2}", year_text)
+    if first_author and year_match:
+        return f"{first_author} et al., {year_match.group(0)}"
+    return ""
+
+
+def _evidence_citation(bundle: AnalysisBundle, evidence_ids: object) -> str:
+    ids = _list_value(evidence_ids)
+    if not ids:
+        return ""
+    references = [*bundle.literature_rows, *bundle.ricedata_references]
+    reference_lookup: dict[str, dict[str, object]] = {}
+    for reference in references:
+        for key in ("reference_id", "doi", "pmid"):
+            value = str(reference.get(key) or "").strip().casefold()
+            if value:
+                reference_lookup[value] = reference
+    evidence_lookup = {str(row.get("evidence_id")): row for row in bundle.mechanism_claims}
+    citations: list[str] = []
+    unresolved: list[str] = []
+    for evidence_id in ids:
+        evidence = evidence_lookup.get(evidence_id)
+        if not evidence:
+            unresolved.append(evidence_id)
+            continue
+        candidate_refs = [
+            *_list_value(evidence.get("reference_ids")),
+            *_list_value(evidence.get("dois")),
+            *_list_value(evidence.get("doi")),
+        ]
+        matched = False
+        for key in candidate_refs:
+            reference = reference_lookup.get(key.casefold())
+            citation = _author_year(reference or evidence)
+            if citation and citation not in citations:
+                citations.append(citation)
+                matched = True
+        if not matched:
+            direct = _author_year(evidence)
+            if direct and direct not in citations:
+                citations.append(direct)
+            else:
+                unresolved.append(evidence_id)
+    output = [f"({citation})" for citation in citations]
+    if unresolved:
+        output.append(f"(证据 {', '.join(dict.fromkeys(unresolved))}，作者—年份待核验)")
+    return " ".join(output)
+
+
+def _narrative_with_citation(doc: Document, text: object, bundle: AnalysisBundle, evidence_ids: object = None) -> None:
+    body = str(text or "").strip() or "当前证据包未提供可复核的文字结论。"
+    citation = _evidence_citation(bundle, evidence_ids)
+    if citation and citation not in body:
+        body = f"{body.rstrip('。')} {citation}。"
+    _add_scientific_paragraph(doc, body, size=11)
+
+
+def _add_experiment_item(doc: Document, index: int, item: dict[str, object], bundle: AnalysisBundle) -> None:
+    doc.add_heading(f"优先实验 {index}", level=2)
+    fields = [
+        ("假设", item.get("hypothesis")),
+        ("科学依据", item.get("rationale")),
+        ("材料/处理", item.get("experiment")),
+        ("对照", item.get("controls")),
+        ("检测指标", item.get("readouts")),
+        ("判别结果", item.get("discriminating_result")),
+    ]
+    for label, value in fields:
+        paragraph = doc.add_paragraph(style="List Bullet")
+        lead = paragraph.add_run(f"{label}：")
+        _format_run(lead, size=10.5, bold=True, color=ACCENT)
+        _format_run(paragraph.add_run(str(value or "待根据已核验证据设计。")), size=10.5)
+    citation = _evidence_citation(bundle, item.get("evidence_ids"))
+    if citation:
+        paragraph = doc.add_paragraph(style="List Bullet")
+        _format_run(paragraph.add_run(f"证据引用：{citation}"), size=10.5)
+
+
+def build_ai_interpretation_word_report(
+    bundle: AnalysisBundle,
+    deep_charts: dict[str, bytes] | None = None,
+) -> bytes:
+    """Render structured synthesis as a concise Chinese scientific review (target: 6–10 pages)."""
     synthesis = bundle.ai_synthesis or {}
     mode = str(synthesis.get("report_mode") or bundle.interpretation_status.get("ai_report_mode") or "evidence_fallback")
     is_ai = mode == "ai"
     doc = Document()
     _configure_styles(doc)
+    normal = doc.styles["Normal"]
+    normal.font.size = Pt(11)
+    normal.paragraph_format.line_spacing = 1.333
+    normal.paragraph_format.space_after = Pt(8)
+    for name, before, after in (("Heading 1", 18, 10), ("Heading 2", 12, 6), ("Heading 3", 8, 4)):
+        doc.styles[name].paragraph_format.space_before = Pt(before)
+        doc.styles[name].paragraph_format.space_after = Pt(after)
     section = doc.sections[0]
     section.page_width = Inches(8.5)
     section.page_height = Inches(11)
-    section.top_margin = Inches(1)
-    section.bottom_margin = Inches(1)
-    section.left_margin = Inches(1)
-    section.right_margin = Inches(1)
+    section.top_margin = Inches(0.86)
+    section.bottom_margin = Inches(0.82)
+    section.left_margin = Inches(0.92)
+    section.right_margin = Inches(0.92)
+    section.header_distance = Inches(0.38)
+    section.footer_distance = Inches(0.42)
     header = section.header.paragraphs[0]
-    header.text = "My Bio Tools v1.9.7 · AI 深度机制解读"
+    header.text = "My Bio Tools v1.9.8 · 功能与机制深度解读"
     _format_paragraph_runs(header, size=9, color=MUTED)
     _add_page_number(section.footer.paragraphs[0])
 
     title = doc.add_paragraph(style="Title")
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title.add_run("AI 深度功能与机制解读报告" if is_ai else "深度功能证据整理报告")
+    title.paragraph_format.space_before = Pt(70)
+    title.add_run("功能与机制深度解读报告" if is_ai else "功能与机制证据整理报告")
     subtitle = doc.add_paragraph()
     subtitle.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    subtitle.add_run("基因身份 → 核心功能 → 机制链 → 组学整合 → 可验证实验")
-    _format_paragraph_runs(subtitle, size=10.5, color=MUTED)
+    subtitle.paragraph_format.space_after = Pt(28)
+    _format_run(subtitle.add_run("基因身份 · 核心功能 · 场景化机制 · 组学对应 · 优先实验"), size=11, color=MUTED)
     status = bundle.interpretation_status
     _add_key_value_table(doc, [
         ("分析对象", ", ".join(bundle.inputs)),
-        ("报告模式", "AI 深度综合" if is_ai else "证据整理回退（未完成 AI 综合）"),
+        ("综合方式", "模型综合 + 程序化证据校验" if is_ai else "程序化证据整理（模型综合未完成）"),
         ("模型", str(status.get("model_label") or status.get("model") or "未使用")),
-        ("机制证据", f"{len(bundle.mechanism_claims)} 条"),
-        ("入模证据", f"{status.get('evidence_claims_sent', 0)} 条；截断 {status.get('evidence_claims_omitted', 0)} 条"),
+        ("可追溯机制证据", f"{len(bundle.mechanism_claims)} 条"),
+        ("多组学定量数据集", f"{len({str(row.get('dataset_id')) for row in bundle.lab_omics_dataset_summaries if row.get('display_tier') in {'differential', 'abundance_only'}})} 个"),
         ("生成时间", bundle.generated_at),
     ])
+    _add_scientific_paragraph(doc, "文中的作者—年份引文由程序根据已核验证据元数据生成；无法对应时保留证据编号并标记待核验。", first_line=False, color=MUTED)
     if not is_ai:
-        _add_callout(doc, "生成状态", "AI 调用未成功或未返回合格结果；以下仅整理本次可追溯证据，不新增无来源机制。", fill=CAUTION_FILL)
-
-    doc.add_heading("执行摘要", level=1)
-    _add_callout(doc, "三分钟读懂", str(synthesis.get("executive_summary") or "当前无可用综合摘要。"))
+        _add_callout(doc, "生成状态", "模型调用未成功或未返回合格结构。以下按相同版式整理已核验证据，不补写机制或文献。", fill=CAUTION_FILL)
 
     identity = synthesis.get("gene_identity") if isinstance(synthesis.get("gene_identity"), dict) else {}
     core = synthesis.get("core_function") if isinstance(synthesis.get("core_function"), dict) else {}
-    doc.add_heading("1. 基因身份与核心功能", level=1)
-    _add_key_value_table(doc, [
-        ("它是什么", str(identity.get("summary") or "—")),
-        ("分子角色", str(identity.get("molecular_role") or "—")),
-        ("作用位置", str(identity.get("localization") or "—")),
-        ("核心功能", str(core.get("summary") or "—")),
-        ("证据编号", ", ".join([*map(str, identity.get("evidence_ids") or []), *map(str, core.get("evidence_ids") or [])]) or "—"),
-    ])
+    doc.add_page_break()
+    doc.add_heading("1. 核心认识", level=1)
+    _narrative_with_citation(doc, synthesis.get("executive_summary") or "当前证据仅支持基础身份和证据范围整理，尚不足以形成稳健的综合机制结论。", bundle, [*(_list_value(identity.get("evidence_ids"))), *(_list_value(core.get("evidence_ids")))])
+    doc.add_heading("基因身份", level=2)
+    _narrative_with_citation(doc, identity.get("summary") or "当前证据包未返回可复核的基因身份概括。", bundle, identity.get("evidence_ids"))
+    if identity.get("molecular_role"):
+        _narrative_with_citation(doc, f"分子角色为：{identity.get('molecular_role')}。", bundle, identity.get("evidence_ids"))
+    if identity.get("localization"):
+        _narrative_with_citation(doc, f"已整理的定位线索指向：{identity.get('localization')}。", bundle, identity.get("evidence_ids"))
+    doc.add_heading("核心功能", level=2)
+    _narrative_with_citation(doc, core.get("summary") or "现有证据尚不足以给出超出数据库注释的核心功能判断。", bundle, core.get("evidence_ids"))
 
-    doc.add_heading("2. 核心机制网络", level=1)
     chains = synthesis.get("mechanism_chains") if isinstance(synthesis.get("mechanism_chains"), list) else []
-    chain_rows = []
-    for item in chains:
-        if not isinstance(item, dict):
-            continue
-        chain_rows.append({
-            "title": item.get("title"), "context": item.get("context"),
-            "chain": " → ".join(str(item.get(key) or "—") for key in ("upstream", "molecular_event", "downstream", "phenotype")),
-            "evidence": ", ".join(map(str, item.get("evidence_ids") or [])), "confidence": item.get("confidence"),
-        })
-    _add_table_or_status(doc, chain_rows, [("title", "机制"), ("context", "场景"), ("chain", "上游 → 事件 → 下游 → 表型"), ("evidence", "证据"), ("confidence", "等级")], [1500, 1400, 3900, 1100, 1460], "本次未形成可用机制链。")
+    if chains:
+        doc.add_page_break()
+    doc.add_heading("2. 场景化机制链", level=1)
+    if chains:
+        for index, item in enumerate(chains, 1):
+            if not isinstance(item, dict):
+                continue
+            doc.add_heading(f"{index}. {item.get('title') or '机制链'}", level=2)
+            chain = " → ".join(str(item.get(key) or "证据缺口") for key in ("upstream", "molecular_event", "downstream", "phenotype"))
+            context = str(item.get("context") or "未特异场景")
+            confidence = str(item.get("confidence") or "待分级")
+            _narrative_with_citation(doc, f"在{context}中，现有证据可整理为“{chain}”。该链条的证据等级为{confidence}，其中未经直接实验闭合的环节仍属机制假设。", bundle, item.get("evidence_ids"))
+    else:
+        _add_scientific_paragraph(doc, "已核验证据尚不足以连接成“上游—分子事件—下游—表型”的完整链条，因此不额外补写。")
 
-    doc.add_heading("3. 场景分支", level=1)
+    doc.add_page_break()
+    doc.add_heading("3. 生物学场景与组学对应", level=1)
     branches = synthesis.get("context_branches") if isinstance(synthesis.get("context_branches"), list) else []
-    for item in branches:
-        if isinstance(item, dict):
-            _add_callout(doc, str(item.get("context") or "未特异场景"), f"{item.get('interpretation') or ''}\n证据：{', '.join(map(str, item.get('evidence_ids') or []))}")
-
-    doc.add_heading("4. 当前组学与已知机制整合", level=1)
+    doc.add_heading("场景分支", level=2)
+    if branches:
+        for item in branches:
+            if not isinstance(item, dict):
+                continue
+            doc.add_heading(str(item.get("context") or "未特异场景"), level=3)
+            _narrative_with_citation(doc, item.get("interpretation") or "当前仅能确认该场景被证据记录，无法继续推导。", bundle, item.get("evidence_ids"))
+    else:
+        _add_scientific_paragraph(doc, "已核验证据未将不同组织、发育阶段或胁迫场景分开，尚不能建立场景特异的机制分支。")
+    doc.add_heading("多组学对应", level=2)
+    quantitative = [row for row in bundle.lab_omics_dataset_summaries if row.get("display_tier") in {"differential", "abundance_only"}]
+    diff_count = len({str(row.get("dataset_id")) for row in quantitative if row.get("display_tier") == "differential"})
+    quant_count = len({str(row.get("dataset_id")) for row in quantitative if row.get("display_tier") == "abundance_only"})
+    _add_scientific_paragraph(doc, f"现有多组学数据覆盖 {len({str(row.get('dataset_id')) for row in quantitative})} 个定量数据集：{diff_count} 个具有来源差异统计，{quant_count} 个仅有对照/处理重复定量。后一类只能用于观察数值分布，不作显著性或因果判断。")
+    charts = dict(deep_charts or {})
+    _add_first_png(doc, charts, ("lab_omics/heatmap_cross_project_log2fc",), "3.1", "Differential response; NA denotes missing source statistics")
+    omics_rows = []
+    for row in quantitative:
+        effect = row.get("effect_value")
+        omics_rows.append({
+            "condition": str(row.get("short_label") or "").replace("\n", " / "),
+            "level": row.get("display_tier_label") or row.get("display_tier"),
+            "repeat": f"{row.get('n_control') or 0}+{row.get('n_treatment') or 0}",
+            "effect": f"{float(effect):.3f}" if effect is not None else "NA",
+            "unit": row.get("quantitation_unit") or "—",
+            "source": _compact_text(" / ".join(value for value in [str(row.get("accession") or ""), str(row.get("dataset_name") or "")] if value), 48),
+        })
+    _add_table_or_status(doc, omics_rows, [("condition", "Short condition"), ("level", "Level"), ("repeat", "C+T"), ("effect", "log2FC"), ("unit", "Source unit"), ("source", "Accession / dataset")], [1900, 1100, 750, 800, 1400, 3410], "当前没有可整理的多组学定量记录。")
     omics = synthesis.get("omics_integration") if isinstance(synthesis.get("omics_integration"), list) else []
-    _add_table_or_status(doc, [item for item in omics if isinstance(item, dict)], [("observation", "本次观察"), ("interpretation", "机制解释"), ("status", "层级"), ("evidence_ids", "证据")], [2500, 3700, 1300, 1860], "本次没有可整合的实验室组学记录。")
-
-    doc.add_heading("5. 可检验假设与实验", level=1)
-    hypotheses = synthesis.get("testable_hypotheses") if isinstance(synthesis.get("testable_hypotheses"), list) else []
-    for index, item in enumerate(hypotheses, 1):
+    for item in omics:
         if not isinstance(item, dict):
             continue
-        _add_callout(doc, f"假设 {index}", (
-            f"{item.get('hypothesis') or ''}\n依据：{item.get('rationale') or ''}\n"
-            f"实验：{item.get('experiment') or ''}\n对照：{item.get('controls') or ''}\n"
-            f"读出：{item.get('readouts') or ''}\n判别结果：{item.get('discriminating_result') or ''}\n"
-            f"证据：{', '.join(map(str, item.get('evidence_ids') or []))}"
-        ), fill=CAUTION_FILL)
-    if not hypotheses:
-        _add_callout(doc, "状态", "证据回退模式不自动新增机制假设；请先核验关键证据后再设计区分性实验。")
+        observation = str(item.get("observation") or "未提供具体观察")
+        interpretation = str(item.get("interpretation") or "现有证据不足以进一步解释")
+        status_text = str(item.get("status") or "待分级")
+        _narrative_with_citation(doc, f"{observation}。与已知机制对应后，可作如下限定性解释：{interpretation}。当前层级为{status_text}。", bundle, item.get("evidence_ids"))
 
-    doc.add_heading("6. 证据边界与参考文献", level=1)
+    doc.add_page_break()
+    doc.add_heading("4. 证据冲突、限定条件与关键缺口", level=1)
+    serious_warnings = [warning for warning in bundle.warnings if any(token in str(warning) for token in ("assembly", "REF", "失败", "一对多", "不一致"))]
+    if serious_warnings:
+        doc.add_heading("可能改变结论的冲突", level=2)
+        for warning in serious_warnings:
+            paragraph = doc.add_paragraph(style="List Bullet")
+            _format_run(paragraph.add_run(str(warning)), size=10.5)
+    else:
+        _add_scientific_paragraph(doc, "当前记录中未发现会直接改变结论的 assembly、REF 或 ID 映射冲突；这不代表所有来源已经全文核验。")
     gaps = synthesis.get("knowledge_gaps") if isinstance(synthesis.get("knowledge_gaps"), list) else []
-    for gap in gaps:
-        paragraph = doc.add_paragraph(style="List Bullet")
-        paragraph.add_run(str(gap))
+    doc.add_heading("关键缺口", level=2)
+    if gaps:
+        for gap in gaps:
+            paragraph = doc.add_paragraph(style="List Bullet")
+            _format_run(paragraph.add_run(str(gap)), size=10.5)
+    else:
+        _add_scientific_paragraph(doc, "结构化结果未列出独立缺口。实验前仍应核对全文、材料背景、处理时间、因果链条与统计效力。")
+    _add_callout(doc, "解读边界", "组学变化不等于因果；计算预测不等于实验证据；PTM 位点变化需要结合总蛋白与位点占有率。", fill=CAUTION_FILL)
+
+    doc.add_page_break()
+    doc.add_heading("5. 优先验证实验", level=1)
+    hypotheses = synthesis.get("testable_hypotheses") if isinstance(synthesis.get("testable_hypotheses"), list) else []
+    valid_hypotheses = [item for item in hypotheses if isinstance(item, dict)]
+    if valid_hypotheses:
+        for index, item in enumerate(valid_hypotheses, 1):
+            _add_experiment_item(doc, index, item, bundle)
+    else:
+        _add_scientific_paragraph(doc, "当前证据仅支持证据整理，尚不足以不加假设地生成可区分的机制实验。建议先完成关键全文核验与基础表型确认，再按“假设—材料/处理—对照—检测指标—判别结果”补齐方案。")
+
+    doc.add_page_break()
+    doc.add_heading("6. 证据索引与参考文献", level=1)
     evidence_lookup = {str(row.get("evidence_id")): row for row in bundle.mechanism_claims}
     reference_ids = [str(item) for item in synthesis.get("references", [])] if isinstance(synthesis.get("references"), list) else list(evidence_lookup)
     reference_rows = []
@@ -1364,11 +1610,14 @@ def build_ai_interpretation_word_report(bundle: AnalysisBundle) -> bytes:
         if not row:
             continue
         reference_rows.append({
-            "id": evidence_id, "level": row.get("evidence_level"), "statement": _compact_text(row.get("statement"), 140),
-            "doi": row.get("dois"), "source": row.get("source_type"),
+            "id": evidence_id,
+            "level": row.get("evidence_level") or "—",
+            "citation": _evidence_citation(bundle, [evidence_id]) or f"(证据 {evidence_id}，待核验)",
+            "statement": _compact_text(row.get("statement"), 150),
+            "doi": row.get("dois") or "—",
         })
-    _add_table_or_status(doc, reference_rows, [("id", "ID"), ("level", "证据等级"), ("statement", "证据摘要"), ("doi", "DOI"), ("source", "来源")], [700, 1300, 4300, 1700, 1360], "本次未形成可用机制证据。")
-    _add_callout(doc, "统一边界", "数据库整理与论文摘要需回到全文核验；组学变化不等于因果；PTM 位点变化必须结合总蛋白和位点占有率。", fill=CAUTION_FILL)
+    _add_table_or_status(doc, reference_rows, [("id", "ID"), ("level", "Level"), ("citation", "Author–year / status"), ("statement", "Evidence statement"), ("doi", "DOI")], [650, 1100, 1900, 4100, 1610], "当前没有可用的机制证据索引。")
+    _add_scientific_paragraph(doc, "参考文献仅来自已核验元数据。如作者和年份不完整，文中保留 evidence ID，不由模型自行生成书目信息。")
 
     for paragraph in doc.paragraphs:
         if not paragraph.runs:
@@ -1377,12 +1626,14 @@ def build_ai_interpretation_word_report(bundle: AnalysisBundle) -> bytes:
             _format_paragraph_runs(paragraph, size=HEADING1_SIZE, bold=True)
         elif paragraph.style.name == "Heading 2":
             _format_paragraph_runs(paragraph, size=HEADING2_SIZE, bold=True)
+        elif paragraph.style.name == "Heading 3":
+            _format_paragraph_runs(paragraph, size=12, bold=True)
         elif paragraph.style.name == "Title":
             _format_paragraph_runs(paragraph, size=TITLE_SIZE, bold=True)
         else:
             for run in paragraph.runs:
                 if run.font.size is None:
-                    _format_run(run)
+                    _format_run(run, size=11)
     output = io.BytesIO()
     doc.save(output)
     return output.getvalue()
@@ -1418,7 +1669,7 @@ def build_excel_report(bundle: AnalysisBundle) -> bytes:
     workbook = Workbook()
     workbook.remove(workbook.active)
     overview = [
-        {"item": "app_version", "value": "1.9.7 (build 26)"},
+        {"item": "app_version", "value": "1.9.8 (build 27)"},
         {"item": "mode", "value": bundle.mode},
         {"item": "input_type", "value": bundle.input_type},
         {"item": "input_count", "value": len(bundle.inputs)},
@@ -1525,6 +1776,7 @@ def build_excel_report(bundle: AnalysisBundle) -> bytes:
         ("Omics_QC", bundle.lab_omics_qc_metrics),
         ("Omics_Dataset_Context", bundle.lab_omics_dataset_context),
         ("Omics_Dataset_Registry", bundle.lab_omics_dataset_registry),
+        ("Omics_Dataset_Summaries", bundle.lab_omics_dataset_summaries),
     ]
     for sheet_name, rows in deep_sheets:
         columns = list(rows[0].keys()) if rows else ["input_id", "status", "source_url", "queried_at", "error"]
@@ -1639,6 +1891,7 @@ def build_analysis_zip(
             "lab_omics/qc_metrics.csv": bundle.lab_omics_qc_metrics,
             "lab_omics/dataset_context.csv": bundle.lab_omics_dataset_context,
             "lab_omics/dataset_registry.csv": bundle.lab_omics_dataset_registry,
+            "lab_omics/dataset_summaries.csv": bundle.lab_omics_dataset_summaries,
         }
         for name, rows in deep_exports.items():
             archive.writestr(name, _rows_to_csv_bytes(rows))
@@ -1663,9 +1916,9 @@ def build_analysis_zip(
         archive.writestr(
             "README.txt",
             (
-                "My Bio Tools v1.9.7 (build 26) - rice gene analysis bundle\n"
+                "My Bio Tools v1.9.8 (build 27) - rice gene analysis bundle\n"
                 f"Generated: {bundle.generated_at}\n"
-                f"Word fonts: East Asia={CHINESE_FONT}; ASCII/HAnsi=Times New Roman.\n"
+                "Word fonts: East Asia=华文仿宋; ASCII/HAnsi=Times New Roman.\n"
                 "All localization outputs are computational predictions and require experimental validation.\n"
             ).encode("utf-8"),
         )
@@ -1712,7 +1965,7 @@ def build_report_artifacts(
     if ai_requested:
         if not bundle.ai_synthesis:
             bundle.ai_synthesis = build_evidence_synthesis(bundle)
-        ai_word_bytes = build_ai_interpretation_word_report(bundle)
+        ai_word_bytes = build_ai_interpretation_word_report(bundle, deep_charts=deep_charts)
         bundle.interpretation_status["ai_report_status"] = (
             "ready" if bundle.ai_synthesis.get("report_mode") == "ai" else "evidence_fallback_ready"
         )

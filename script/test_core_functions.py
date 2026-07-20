@@ -617,6 +617,7 @@ class CoreFunctionTests(unittest.TestCase):
                 "Omics_QC",
                 "Omics_Dataset_Context",
                 "Omics_Dataset_Registry",
+                "Omics_Dataset_Summaries",
                 "Warnings_Sources",
             ],
         )

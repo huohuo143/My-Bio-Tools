@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AUTH_DIR="$ROOT_DIR/auth-service"
 WRANGLER="$AUTH_DIR/node_modules/.bin/wrangler"
 CONFIG="$AUTH_DIR/wrangler.jsonc"
-DMG="${2:-$ROOT_DIR/dist/My-Bio-Tools-1.9.7-arm64.dmg}"
+DMG="${2:-$ROOT_DIR/dist/My-Bio-Tools-1.9.8-arm64.dmg}"
 BUNDLE_ID="top.aizs.my-bio-tools"
 PLATFORM="macos-arm64"
 GITHUB_REPOSITORY="${MY_BIO_TOOLS_GITHUB_REPOSITORY:-huohuo143/My-Bio-Tools}"
@@ -71,7 +71,7 @@ else
   WRANGLER_ARGS+=(--env "")
 fi
 
-RELEASE_NOTES="${MY_BIO_TOOLS_RELEASE_NOTES:-新增 DeepSeek、豆包、智谱 GLM、通义千问和 ChatAnywhere API；API Key 仅在当前会话使用，不写入偏好或报告。}"
+RELEASE_NOTES="${MY_BIO_TOOLS_RELEASE_NOTES:-多组学按差异统计、仅定量观察和论文证据分层完整展示；Word 与 AI 深度解读改为清晰的中文科研综述体。}"
 CHECKSUM_FILE="$TEMP_DIR/$CHECKSUM_NAME"
 printf '%s  %s\n' "$SHA256" "$ASSET_NAME" > "$CHECKSUM_FILE"
 

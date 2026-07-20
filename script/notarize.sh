@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DMG="${1:-$ROOT_DIR/dist/My-Bio-Tools-1.9.7-$(uname -m).dmg}"
+DMG="${1:-$ROOT_DIR/dist/My-Bio-Tools-1.9.8-$(uname -m).dmg}"
 PROFILE="${NOTARY_PROFILE:-}"
 
 if [[ -z "$PROFILE" ]]; then

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import random
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -30,8 +31,15 @@ class StreamlitWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         os.environ["MY_BIO_TOOLS_ACCESS_MODE"] = "authorized"
+        cls._config_directory = tempfile.TemporaryDirectory(prefix="my-bio-tools-ui-tests-")
+        os.environ["MY_BIO_TOOLS_CONFIG_DIR"] = cls._config_directory.name
         os.chdir(APP_SOURCE)
         sys.path.insert(0, str(APP_SOURCE))
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        os.environ.pop("MY_BIO_TOOLS_CONFIG_DIR", None)
+        cls._config_directory.cleanup()
 
     def open_tool(self, category: str, tool: str) -> AppTest:
         app = AppTest.from_file(str(MAIN_SCRIPT), default_timeout=30)

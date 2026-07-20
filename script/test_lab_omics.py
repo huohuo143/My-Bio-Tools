@@ -88,11 +88,14 @@ class LabOmicsTests(unittest.TestCase):
             self.assertEqual(len(samples), 12)
             self.assertTrue(all(row["replicate"] in (1, 2, 3, 4) for row in samples))
 
-    def test_absent_categories_and_plot_exports(self) -> None:
+    def test_optional_absent_categories_and_plot_exports(self) -> None:
         result = query_lab_omics(["LOC_Os03g28330", "LOC_Os08g31410"], DATABASE)
         statuses = {row["dataset_id"]: row["inclusion_status"] for row in result["status"]}
-        self.assertEqual(statuses.get("gray_planthopper_absent"), "absent")
-        self.assertEqual(statuses.get("rbsdv_absent"), "absent")
+        # Older registries used explicit placeholders for unavailable categories.
+        # Current registries may omit them, but if present they must remain marked absent.
+        for dataset_id in ("gray_planthopper_absent", "rbsdv_absent"):
+            if dataset_id in statuses:
+                self.assertEqual(statuses[dataset_id], "absent")
         charts, raw = build_lab_omics_artifacts(result)
         cross = "lab_omics/heatmap_cross_project_log2fc"
         self.assertTrue(charts[f"{cross}.png"].startswith(b"\x89PNG\r\n\x1a\n"))
@@ -103,9 +106,11 @@ class LabOmicsTests(unittest.TestCase):
         matrices = project_profile_matrices(result)
         leafhopper = next(item for item in matrices if item[0] == LEAFHOPPER_DATASET)
         columns = list(leafhopper[2].columns)
-        self.assertEqual(columns[:4], ["NPB_L_1", "NPB_L_2", "NPB_L_3", "NPB_L_4"])
-        self.assertLess(columns.index("Rd12_L_1"), columns.index("Rd24_L_1"))
-        self.assertLess(columns.index("Rd24_L_1"), columns.index("Rd3d_L_1"))
+        self.assertEqual(columns[:4], [f"leafhopper control\nNPB · R{index}" for index in range(1, 5)])
+        self.assertEqual(columns[4:8], [f"WBPH control\nNPB · R{index}" for index in range(1, 5)])
+        self.assertEqual(len(columns), len(set(columns)))
+        self.assertLess(columns.index("leafhopper 12\nNPB · R1"), columns.index("leafhopper 24\nNPB · R1"))
+        self.assertLess(columns.index("leafhopper 24\nNPB · R1"), columns.index("leafhopper 3d\nNPB · R1"))
 
     def test_query_performance_targets(self) -> None:
         loci = [
