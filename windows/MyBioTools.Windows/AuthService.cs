@@ -45,7 +45,7 @@ internal sealed class AuthService
         {
             email, password, installationId = _state!.InstallationId, platform = "windows",
             deviceName = Environment.MachineName,
-            appVersion = typeof(AuthService).Assembly.GetName().Version?.ToString(3) ?? "1.9.7",
+            appVersion = typeof(AuthService).Assembly.GetName().Version?.ToString(3) ?? "1.9.8",
         });
         Accept(response.ToStored(), offline: false);
     }
