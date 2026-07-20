@@ -10,10 +10,10 @@
     <AssemblyName>My Bio Tools</AssemblyName>
     <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.9.1</Version>
-    <AssemblyVersion>1.9.1.0</AssemblyVersion>
-    <FileVersion>1.9.1.0</FileVersion>
-    <InformationalVersion>1.9.1</InformationalVersion>
+    <Version>1.9.7</Version>
+    <AssemblyVersion>1.9.7.26</AssemblyVersion>
+    <FileVersion>1.9.7.26</FileVersion>
+    <InformationalVersion>1.9.7+build.26</InformationalVersion>
     <Authors>Wu Lab team</Authors>
     <Company>Wu Lab</Company>
     <Product>My Bio Tools</Product>

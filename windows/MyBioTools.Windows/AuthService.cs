@@ -44,7 +44,7 @@ internal sealed class AuthService
         {
             email, password, installationId = _state!.InstallationId, platform = "windows",
             deviceName = Environment.MachineName,
-            appVersion = typeof(AuthService).Assembly.GetName().Version?.ToString(3) ?? "1.9.1",
+            appVersion = typeof(AuthService).Assembly.GetName().Version?.ToString(3) ?? "1.9.7",
         });
         Accept(response.ToStored(), offline: false);
     }
@@ -143,7 +143,8 @@ internal sealed class AuthService
         Authorization = new BackendAuthorization(
             session.Tokens.OfflineLicense,
             _verifier.InstallationHash(_state.InstallationId),
-            _configuration.PublicJwk);
+            _configuration.PublicJwk,
+            claims.OmicsKeyB64);
         IsOffline = offline;
         LicenseExpiresAt = DateTimeOffset.FromUnixTimeSeconds(claims.ExpiresAt);
     }

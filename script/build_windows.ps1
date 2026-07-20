@@ -15,7 +15,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
-$Version = "1.9.1"
+$Version = "1.9.7"
+$Build = 26
 $RuntimeInstallerName = "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 $RuntimeInstallerUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 $Venv = Join-Path $Root ".build-venv-win"
@@ -24,10 +25,11 @@ $BackendDist = Join-Path $BuildRoot "backend"
 $PyInstallerWork = Join-Path $BuildRoot "pyinstaller"
 $AppStage = Join-Path $BuildRoot "app"
 $DistRoot = Join-Path $Root "dist\windows"
-$PortableZip = Join-Path $DistRoot "My-Bio-Tools-$Version-win-x64-portable.zip"
-$SetupExe = Join-Path $DistRoot "My-Bio-Tools-$Version-win-x64-setup.exe"
+$PortableZip = Join-Path $DistRoot "My-Bio-Tools-$Version-build$Build-win-x64-portable.zip"
+$SetupExe = Join-Path $DistRoot "My-Bio-Tools-$Version-build$Build-win-x64-setup.exe"
 $CachedRuntimeInstaller = Join-Path $Root "windows\prerequisites\$RuntimeInstallerName"
 $Project = Join-Path $Root "windows\MyBioTools.Windows\MyBioTools.Windows.csproj"
+$SmokeProject = Join-Path $Root "windows\MyBioTools.Windows.Smoke\MyBioTools.Windows.Smoke.csproj"
 $BackendSpec = Join-Path $Root "packaging\BioToolsBackend.windows.spec"
 $NlstradamusDir = Join-Path $Root "app_source\vendor\nlstradamus"
 $NlstradamusSource = Join-Path $NlstradamusDir "NLStradamus.cpp"
@@ -39,6 +41,25 @@ if (-not $LicensePublicJwk) {
 }
 if (-not $LicensePublicJwk) {
     throw "缺少 LicensePublicJwk 或 MY_BIO_TOOLS_LICENSE_PUBLIC_JWK；拒绝生成无法登录的 Windows 安装包。"
+}
+try {
+    $parsedPublicJwk = $LicensePublicJwk | ConvertFrom-Json
+} catch {
+    throw "LicensePublicJwk 不是有效 JSON。"
+}
+$publicJwkProperties = @($parsedPublicJwk.PSObject.Properties.Name)
+if (
+    $publicJwkProperties -notcontains "kty" -or
+    $publicJwkProperties -notcontains "crv" -or
+    $publicJwkProperties -notcontains "x" -or
+    $parsedPublicJwk.kty -ne "OKP" -or
+    $parsedPublicJwk.crv -ne "Ed25519" -or
+    -not $parsedPublicJwk.x
+) {
+    throw "LicensePublicJwk 必须是包含 kty=OKP、crv=Ed25519 和 x 的公钥。"
+}
+if ($publicJwkProperties -contains "d") {
+    throw "LicensePublicJwk 包含私钥字段 d；拒绝把私钥写入 Windows 分发包。"
 }
 
 function Invoke-Native {
@@ -134,13 +155,16 @@ if ($LASTEXITCODE -ne 0 -or $nlHelp -notmatch "NLStradamus v1\.8") {
 
 Write-Host "[3/9] 验证源码与全部 Streamlit 页面"
 if (-not $SkipTests) {
+    Invoke-Native $VenvPython @((Join-Path $Root "script\validate_windows_source.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\verify_source.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_core_functions.py"))
-    Invoke-Native $VenvPython @((Join-Path $Root "script\test_report_interpretation.py"))
-    Invoke-Native $VenvPython @((Join-Path $Root "script\test_codex_chatgpt.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_prediction_adapters.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_streamlit_pages.py"))
     Invoke-Native $VenvPython @((Join-Path $Root "script\test_streamlit_workflows.py"))
+    Invoke-Native $VenvPython @((Join-Path $Root "script\test_codex_chatgpt.py"))
+    Invoke-Native $VenvPython @((Join-Path $Root "script\test_report_interpretation.py"))
+    Invoke-Native $VenvPython @((Join-Path $Root "script\test_multi_provider_api.py"))
+    Invoke-Native $VenvPython @((Join-Path $Root "script\test_backend_license_gate.py"))
     if ($RunLiveTests) {
         Invoke-Native $VenvPython @((Join-Path $Root "script\validate_ricedata_live.py"))
         Invoke-Native $VenvPython @((Join-Path $Root "script\validate_rgap_live.py"))
@@ -169,7 +193,7 @@ $BackendExe = Join-Path $BackendBundle "BioToolsBackend.exe"
 if (-not (Test-Path $BackendExe)) {
     throw "未生成 Windows 后端：$BackendExe"
 }
-Invoke-Native $BackendExe @("--help")
+Invoke-Native $BackendExe @("--runtime-smoke-test")
 $DocxRuntime = Join-Path $BackendBundle "_internal\docx"
 $DocxParts = Join-Path $DocxRuntime "parts"
 if (-not (Test-Path $DocxParts -PathType Container)) {
@@ -189,6 +213,10 @@ Write-Host "python-docx 冻结运行时布局验证通过。"
 
 Write-Host "[5/9] 发布 .NET 10 WPF 原生外壳"
 Invoke-Native $dotnet.Source @(
+    "run", "--project", $SmokeProject,
+    "--configuration", "Release"
+)
+Invoke-Native $dotnet.Source @(
     "publish", $Project,
     "--configuration", "Release",
     "--runtime", "win-x64",
@@ -203,6 +231,10 @@ if (-not (Test-Path $AppExe)) {
 New-Item -ItemType Directory -Path (Join-Path $AppStage "backend") -Force | Out-Null
 Copy-Item (Join-Path $BackendBundle "*") (Join-Path $AppStage "backend") -Recurse -Force
 Copy-Item (Join-Path $Root "app_source") (Join-Path $AppStage "app_source") -Recurse -Force
+$StagedMacNlstradamus = Join-Path $AppStage "app_source\vendor\nlstradamus\bin\NLStradamus"
+if (Test-Path $StagedMacNlstradamus) {
+    Remove-Item $StagedMacNlstradamus -Force
+}
 Get-ChildItem (Join-Path $AppStage "app_source") -Directory -Filter "__pycache__" -Recurse -ErrorAction SilentlyContinue |
     Sort-Object FullName -Descending |
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
@@ -238,6 +270,8 @@ Invoke-Native $VenvPython @("-m", "pip", "freeze", "--all") | Set-Content (Join-
 $manifest = [ordered]@{
     product = "My Bio Tools"
     version = $Version
+    build = $Build
+    baseline = "macOS 1.9.7 Build 26"
     platform = "win-x64"
     python = "3.12"
     dotnet = $dotnetVersionText
@@ -246,6 +280,10 @@ $manifest = [ordered]@{
     build_time_utc = [DateTime]::UtcNow.ToString("o")
     tools = 7
     online_tools = 2
+    cloud_ai_providers = 6
+    codex_chatgpt = $true
+    ollama = $true
+    authenticated_omics = $true
 }
 $manifest | ConvertTo-Json | Set-Content (Join-Path $AppStage "version-manifest.json") -Encoding UTF8
 $manifest | ConvertTo-Json | Set-Content (Join-Path $DistRoot "version-manifest.json") -Encoding UTF8
@@ -294,7 +332,8 @@ if ($RunRuntimeSmokeTest) {
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
         "-File", (Join-Path $Root "script\test_windows_runtime.ps1"),
-        "-AppDir", $AppStage
+        "-AppDir", $AppStage,
+        "-RequireAuthorizedAccount"
     )
 }
 

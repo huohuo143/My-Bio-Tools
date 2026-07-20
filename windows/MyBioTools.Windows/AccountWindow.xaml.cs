@@ -14,14 +14,18 @@ public partial class AccountWindow : Window
     public bool LogoutRequested { get; private set; }
     public bool PasswordResetRequested { get; private set; }
 
-    internal AccountWindow(UserProfile? user, IEnumerable<DeviceProfile> devices, DateTimeOffset? expiresAt, bool offline)
+    internal AccountWindow(UserProfile? user, IEnumerable<DeviceProfile> devices, DateTimeOffset? offlineExpiresAt, bool offline)
     {
         InitializeComponent();
         NameText.Text = user?.RealName ?? "当前账号";
         EmailText.Text = user?.Email ?? string.Empty;
-        LicenseText.Text = expiresAt is null
-            ? "未读取到授权到期时间"
-            : $"授权至 {expiresAt.Value.ToLocalTime():yyyy-MM-dd HH:mm}{(offline ? "（离线模式）" : "")}";
+        var accountAuthorization = user?.AuthorizationExpiresAt is long timestamp
+            ? $"账号授权至 {DateTimeOffset.FromUnixTimeSeconds(timestamp).ToLocalTime():yyyy-MM-dd HH:mm}"
+            : user?.AuthorizationPermanent == true ? "账号授权：永久" : "账号授权：未读取，请联网刷新";
+        var offlineLicense = offlineExpiresAt is null
+            ? "本机离线凭证：未读取"
+            : $"本机离线凭证至 {offlineExpiresAt.Value.ToLocalTime():yyyy-MM-dd HH:mm}{(offline ? "（离线模式）" : "")}";
+        LicenseText.Text = $"{accountAuthorization}\n{offlineLicense}";
         DevicesList.ItemsSource = devices.Select(device => new DeviceItem(device)).ToArray();
     }
 

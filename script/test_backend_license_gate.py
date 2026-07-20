@@ -36,27 +36,35 @@ def main() -> int:
         "eyJ0eXAiOiJvZmZsaW5lLWxpY2Vuc2UiLCJzdWIiOiJ1c2VyLXRlc3QiLCJkZXZpY2UiOiJTSHJyVlVIZUtuNEZLdURoR2JZdVpMWlFaZV9JYTR4T1p3THcwcDFkRllBIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDAsInZlcnNpb24iOjEsIm9taWNzX2tleV9iNjQiOiJBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBPSJ9."
         "8GfIMRJgHTll-dziWVIVisx5UZfQoIyRKt7Maqkjm6-Iff52od2tzxpP9IVQYgpwCtC7fygBbrxqctITN6DHDg"
     )
+    omics_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     claims = validate_license(
         token,
         public_jwk,
         "SHrrVUHeKn4FKuDhGbYuZLZQZe_Ia4xOZwLw0p1dFYA",
         now=1_800_000_000,
-        omics_key_b64="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        omics_key_b64=omics_key,
     )
     assert claims["sub"] == "user-test"
+    assert claims["omics_key_b64"] == omics_key
     try:
-        validate_license(
-            token,
-            public_jwk,
-            "wrong-device",
-            now=1_800_000_000,
-            omics_key_b64="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
-        )
+        validate_license(token, public_jwk, "wrong-device", now=1_800_000_000)
     except LicenseValidationError:
         pass
     else:
         raise AssertionError("wrong-device license was accepted")
-    print("Backend Ed25519 and Worker-signed license verification passed.")
+    try:
+        validate_license(
+            token,
+            public_jwk,
+            "SHrrVUHeKn4FKuDhGbYuZLZQZe_Ia4xOZwLw0p1dFYA",
+            now=1_800_000_000,
+            omics_key_b64="AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+        )
+    except LicenseValidationError:
+        pass
+    else:
+        raise AssertionError("mismatched native omics key was accepted")
+    print("Backend Ed25519, signed omics key, and device verification passed.")
     return 0
 
 

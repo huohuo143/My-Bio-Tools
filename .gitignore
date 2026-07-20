@@ -18,7 +18,12 @@ dist-dev/
 backup/
 output/
 analysis_results/
-app_source/data/lab_omics/
+# The public repository contains only the encrypted distribution database and
+# its non-secret manifest. Plaintext databases and other working files remain
+# ignored.
+app_source/data/lab_omics/*
+!app_source/data/lab_omics/wulab_omics_v1.sqlite.zlib.aesctr
+!app_source/data/lab_omics/wulab_omics_v1.sqlite.zlib.aesctr.manifest.json
 Resources/icon-archive/
 app_source/__pycache__/
 app_source/**/*.pyc

@@ -76,7 +76,7 @@ def main() -> None:
     if selected_appearance != st.session_state.get("saved_app_appearance_mode"):
         save_appearance_mode(selected_appearance)
         st.session_state.saved_app_appearance_mode = selected_appearance
-    st.sidebar.caption("“跟随系统”会自动使用 macOS 当前外观。")
+    st.sidebar.caption("“跟随系统”会自动使用当前操作系统的浅色或深色外观。")
 
     categories = ["概览", DIRECT_RICE_WORKSPACE, "生信小工具", RICEDATA_WORKSPACE]
     category = st.sidebar.radio("工作区", categories, key="navigation_category")
