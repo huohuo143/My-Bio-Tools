@@ -41,7 +41,7 @@ VersionInfoVersion=1.9.7.26
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Windows x64 installer
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion={#MyAppVersion} Build {#MyAppBuild}
+VersionInfoProductVersion={#MyAppVersion}.{#MyAppBuild}
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
