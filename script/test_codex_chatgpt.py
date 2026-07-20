@@ -146,13 +146,13 @@ class CodexChatGPTTests(unittest.TestCase):
             environ={"HOME": "/Users/test"},
             which=lambda _: None,
         )
-        self.assertEqual(str(mac[0]), "/Applications/ChatGPT.app/Contents/Resources/codex")
+        self.assertEqual(mac[0].as_posix(), "/Applications/ChatGPT.app/Contents/Resources/codex")
         windows = codex_chatgpt._candidate_paths(
             system_name="Windows",
             environ={"LOCALAPPDATA": "C:/Users/test/AppData/Local", "USERPROFILE": "C:/Users/test"},
             which=lambda _: None,
         )
-        self.assertTrue(str(windows[0]).replace("\\", "/").endswith("Programs/OpenAI/Codex/bin/codex.exe"))
+        self.assertTrue(windows[0].as_posix().endswith("Programs/OpenAI/Codex/bin/codex.exe"))
 
     def test_detection_requires_chatgpt_login_and_safe_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
