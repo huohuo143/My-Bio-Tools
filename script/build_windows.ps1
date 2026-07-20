@@ -141,7 +141,10 @@ $mingw = Get-Command "g++.exe" -ErrorAction SilentlyContinue
 Push-Location $NlstradamusDir
 try {
     if ($mingw) {
-        Invoke-Native $mingw.Source @("-O3", "-std=c++11", $NlstradamusSource, "-o", $NlstradamusExe)
+        Invoke-Native $mingw.Source @(
+            "-O3", "-std=c++11", "-Werror=return-type",
+            $NlstradamusSource, "-o", $NlstradamusExe
+        )
     } else {
         throw "未找到 g++.exe；NLStradamus 1.8 原版源码使用可变长数组扩展，请安装 MinGW-w64。"
     }

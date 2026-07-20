@@ -41,11 +41,11 @@ private:
 	string m_sequence;
 public:
 	//Setters
-	bool appendLine(string seq_line){
+	void appendLine(string seq_line){
 		m_sequence += seq_line;
 	}
 	
-	bool setHeader(string header){
+	void setHeader(string header){
 		m_seq_ID = header;	
 	}
 	
